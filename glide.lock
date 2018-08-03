@@ -1,0 +1,10 @@
+hash: 100ecc03acf49c1ff24f559b06265d7fd488a0ebc249c981ccd2d46ffd47ac87
+updated: 2018-08-03T16:34:32.323253258+08:00
+imports:
+- name: github.com/kr/pty
+  version: fa756f09eeb418bf1cc6268c66ceaad9bb98f598
+- name: golang.org/x/crypto
+  version: 1f22c0103821b9390939b6776727195525381532
+  subpackages:
+  - ssh/terminal
+testImports: []
