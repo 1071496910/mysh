@@ -60,7 +60,9 @@ func test() error {
 			if err == nil {
 				line = append(line, b)
 				if strings.HasSuffix(string(line), "\r") {
-					record(string(line))
+					if len(string(line)) > 1 {
+						record(string(line))
+					}
 					line = []byte{}
 				}
 			}
@@ -74,7 +76,21 @@ func test() error {
 	return nil
 }
 
+var recordFile = "/tmp/bash-record"
+
 func record(s string) error {
+
+	f, err := os.OpenFile(recordFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer f.Close()
+
+	if _, err := f.WriteString(s); err != nil {
+		log.Fatal(err)
+	}
+
 	return nil
 }
 
