@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+
+message UploadRequest {
+  string uid = 1;
+  string record = 2;
+}
+
+message UploadResponse {
+  int32 responseCode = 1;
+}
+
+message SearchRequest {
+  string uid          = 1;
+  string searchString = 2;
+}
+
+message SearchResponse {
+  repeated string response = 1;
+}
+
+service SearchService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Upload(UploadRequest) returns (UploadResponse);
+}
