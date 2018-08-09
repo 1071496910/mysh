@@ -18,7 +18,7 @@ import (
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh/terminal"
 
-	"github.com/1071496910/mysh/record"
+	"github.com/1071496910/mysh/recorder"
 )
 
 func ctrl(b byte) byte {
