@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"syscall"
+	//"unsafe"
 	//"io/ioutil"
 	"log"
 	"os"
@@ -13,7 +15,7 @@ import (
 	"os/signal"
 	//"strconv"
 	//"strings"
-	"syscall"
+	"path/filepath"
 	"time"
 
 	"github.com/kr/pty"
@@ -22,6 +24,7 @@ import (
 	"github.com/1071496910/mysh/proto"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
 )
 
 func ctrl(b byte) byte {
@@ -35,10 +38,23 @@ func meta(b byte) byte {
 var ErrShortWrite = errors.New("short write")
 var EOF = errors.New("EOF")
 
-// NewSearchServiceClient      f func(cc *grpc.ClientConn) proto.SearchServiceClient
 var recorder proto.SearchServiceClient
 
+var logDir = "/var/log/mysh/"
+
 func init() {
+
+	if err := os.MkdirAll(logDir, 0644); err != nil {
+		panic(err)
+	}
+	logFile, err := os.OpenFile(filepath.Join(logDir, "mysh.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	newLogger := log.New(logFile, "[mysh]", log.LstdFlags)
+
+	grpclog.SetLogger(newLogger)
 
 	conn, err := grpc.Dial("localhost:8080", grpc.WithInsecure())
 	if err != nil {
@@ -97,6 +113,32 @@ func cleanLineTail() {
 }
 
 func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
+
+	//check network
+	_, err := recorder.Search(context.Background(), &proto.SearchRequest{
+		SearchString: "",
+		Uid:          "",
+	})
+
+	//offline mode
+	if err != nil {
+		//fmt.Println(err)
+		bashinBuffer.WriteByte(ctrl('r'))
+
+		for {
+			time.Sleep(1 * time.Millisecond)
+			b, err := stdinBuffer.ReadByte()
+			if err == nil {
+				bashinBuffer.WriteByte(b)
+
+				if b == '\r' || b == '\n' {
+					return
+				}
+
+			}
+		}
+	}
+
 	saveCursor()
 
 	lastView := ""
@@ -220,11 +262,11 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 				if searchIndex > 0 {
 					//candidateCommands = recorder.Find(string(searchBuffer))
 					response, err := recorder.Search(context.Background(), &proto.SearchRequest{
-						Uid:          "123",
+						Uid:          "hpc",
 						SearchString: string(searchBuffer),
 					})
 					if err != nil {
-						panic(err)
+						log.Println(err)
 					}
 					candidateCommands = response.Response
 
@@ -239,6 +281,7 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 func Run() error {
 	// Create arbitrary command.
 	c := exec.Command("bash")
+	c.Env = append(os.Environ(), `PROMPT_COMMAND=/usr/bin/mysh-agent $(history 1 | { read x cmd; echo "$cmd"; })`)
 
 	// Start the command with a pty.
 	ptmx, err := pty.Start(c)
@@ -278,7 +321,33 @@ func Run() error {
 		}
 	}()
 
+	//var setAgentCommand = `export PROMPT_COMMAND='mysh-agent $(history 1 | { read x cmd; echo "$cmd"; })'
+	//`
+
 	go func() {
+		//fd := int(ptmx.Fd())
+
+		//{
+		//	const ioctlReadTermios = 0x5401  // syscall.TCGETS
+		//	const ioctlWriteTermios = 0x5402 // syscall.TCSETS
+
+		//	var oldState syscall.Termios
+		//	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlReadTermios, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0); err != 0 {
+		//		panic(err)
+		//	}
+
+		//	newState := oldState
+		//	newState.Lflag &^= syscall.ECHO
+		//	newState.Lflag |= syscall.ICANON | syscall.ISIG
+		//	newState.Iflag |= syscall.ICRNL
+		//	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlWriteTermios, uintptr(unsafe.Pointer(&newState)), 0, 0, 0); err != 0 {
+		//		panic(err)
+		//	}
+		//	ptmx.WriteString(setAgentCommand)
+
+		//	syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlWriteTermios, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
+		//}
+
 		for {
 			time.Sleep(1 * time.Millisecond)
 			b, err := stdinBuffer.ReadByte()

@@ -12,6 +12,10 @@ It has these top-level messages:
 	UploadResponse
 	SearchRequest
 	SearchResponse
+	LoginRequest
+	LoginResponse
+	CertRequest
+	CertEntry
 */
 package proto
 
@@ -38,6 +42,7 @@ const _ = proto1.ProtoPackageIsVersion2 // please upgrade the proto package
 type UploadRequest struct {
 	Uid    string `protobuf:"bytes,1,opt,name=uid" json:"uid,omitempty"`
 	Record string `protobuf:"bytes,2,opt,name=record" json:"record,omitempty"`
+	Token  string `protobuf:"bytes,3,opt,name=token" json:"token,omitempty"`
 }
 
 func (m *UploadRequest) Reset()                    { *m = UploadRequest{} }
@@ -59,14 +64,29 @@ func (m *UploadRequest) GetRecord() string {
 	return ""
 }
 
+func (m *UploadRequest) GetToken() string {
+	if m != nil {
+		return m.Token
+	}
+	return ""
+}
+
 type UploadResponse struct {
-	ResponseCode int32 `protobuf:"varint,1,opt,name=responseCode" json:"responseCode,omitempty"`
+	ErrorMsg     string `protobuf:"bytes,1,opt,name=errorMsg" json:"errorMsg,omitempty"`
+	ResponseCode int32  `protobuf:"varint,2,opt,name=responseCode" json:"responseCode,omitempty"`
 }
 
 func (m *UploadResponse) Reset()                    { *m = UploadResponse{} }
 func (m *UploadResponse) String() string            { return proto1.CompactTextString(m) }
 func (*UploadResponse) ProtoMessage()               {}
 func (*UploadResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+
+func (m *UploadResponse) GetErrorMsg() string {
+	if m != nil {
+		return m.ErrorMsg
+	}
+	return ""
+}
 
 func (m *UploadResponse) GetResponseCode() int32 {
 	if m != nil {
@@ -78,6 +98,7 @@ func (m *UploadResponse) GetResponseCode() int32 {
 type SearchRequest struct {
 	Uid          string `protobuf:"bytes,1,opt,name=uid" json:"uid,omitempty"`
 	SearchString string `protobuf:"bytes,2,opt,name=searchString" json:"searchString,omitempty"`
+	Token        string `protobuf:"bytes,3,opt,name=token" json:"token,omitempty"`
 }
 
 func (m *SearchRequest) Reset()                    { *m = SearchRequest{} }
@@ -99,6 +120,13 @@ func (m *SearchRequest) GetSearchString() string {
 	return ""
 }
 
+func (m *SearchRequest) GetToken() string {
+	if m != nil {
+		return m.Token
+	}
+	return ""
+}
+
 type SearchResponse struct {
 	Response []string `protobuf:"bytes,1,rep,name=response" json:"response,omitempty"`
 }
@@ -115,11 +143,87 @@ func (m *SearchResponse) GetResponse() []string {
 	return nil
 }
 
+type LoginRequest struct {
+	Uid      string `protobuf:"bytes,1,opt,name=uid" json:"uid,omitempty"`
+	Password string `protobuf:"bytes,2,opt,name=password" json:"password,omitempty"`
+}
+
+func (m *LoginRequest) Reset()                    { *m = LoginRequest{} }
+func (m *LoginRequest) String() string            { return proto1.CompactTextString(m) }
+func (*LoginRequest) ProtoMessage()               {}
+func (*LoginRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
+
+func (m *LoginRequest) GetUid() string {
+	if m != nil {
+		return m.Uid
+	}
+	return ""
+}
+
+func (m *LoginRequest) GetPassword() string {
+	if m != nil {
+		return m.Password
+	}
+	return ""
+}
+
+type LoginResponse struct {
+	ResponseCode int32  `protobuf:"varint,1,opt,name=responseCode" json:"responseCode,omitempty"`
+	Token        string `protobuf:"bytes,2,opt,name=token" json:"token,omitempty"`
+}
+
+func (m *LoginResponse) Reset()                    { *m = LoginResponse{} }
+func (m *LoginResponse) String() string            { return proto1.CompactTextString(m) }
+func (*LoginResponse) ProtoMessage()               {}
+func (*LoginResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
+
+func (m *LoginResponse) GetResponseCode() int32 {
+	if m != nil {
+		return m.ResponseCode
+	}
+	return 0
+}
+
+func (m *LoginResponse) GetToken() string {
+	if m != nil {
+		return m.Token
+	}
+	return ""
+}
+
+type CertRequest struct {
+}
+
+func (m *CertRequest) Reset()                    { *m = CertRequest{} }
+func (m *CertRequest) String() string            { return proto1.CompactTextString(m) }
+func (*CertRequest) ProtoMessage()               {}
+func (*CertRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{6} }
+
+type CertEntry struct {
+	Content string `protobuf:"bytes,1,opt,name=content" json:"content,omitempty"`
+}
+
+func (m *CertEntry) Reset()                    { *m = CertEntry{} }
+func (m *CertEntry) String() string            { return proto1.CompactTextString(m) }
+func (*CertEntry) ProtoMessage()               {}
+func (*CertEntry) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{7} }
+
+func (m *CertEntry) GetContent() string {
+	if m != nil {
+		return m.Content
+	}
+	return ""
+}
+
 func init() {
 	proto1.RegisterType((*UploadRequest)(nil), "UploadRequest")
 	proto1.RegisterType((*UploadResponse)(nil), "UploadResponse")
 	proto1.RegisterType((*SearchRequest)(nil), "SearchRequest")
 	proto1.RegisterType((*SearchResponse)(nil), "SearchResponse")
+	proto1.RegisterType((*LoginRequest)(nil), "LoginRequest")
+	proto1.RegisterType((*LoginResponse)(nil), "LoginResponse")
+	proto1.RegisterType((*CertRequest)(nil), "CertRequest")
+	proto1.RegisterType((*CertEntry)(nil), "CertEntry")
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -135,6 +239,7 @@ const _ = grpc.SupportPackageIsVersion4
 type SearchServiceClient interface {
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
 	Upload(ctx context.Context, in *UploadRequest, opts ...grpc.CallOption) (*UploadResponse, error)
+	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 }
 
 type searchServiceClient struct {
@@ -163,11 +268,21 @@ func (c *searchServiceClient) Upload(ctx context.Context, in *UploadRequest, opt
 	return out, nil
 }
 
+func (c *searchServiceClient) Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error) {
+	out := new(LoginResponse)
+	err := grpc.Invoke(ctx, "/SearchService/Login", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Server API for SearchService service
 
 type SearchServiceServer interface {
 	Search(context.Context, *SearchRequest) (*SearchResponse, error)
 	Upload(context.Context, *UploadRequest) (*UploadResponse, error)
+	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 }
 
 func RegisterSearchServiceServer(s *grpc.Server, srv SearchServiceServer) {
@@ -210,6 +325,24 @@ func _SearchService_Upload_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SearchService_Login_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SearchServiceServer).Login(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/SearchService/Login",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SearchServiceServer).Login(ctx, req.(*LoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _SearchService_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "SearchService",
 	HandlerType: (*SearchServiceServer)(nil),
@@ -222,6 +355,74 @@ var _SearchService_serviceDesc = grpc.ServiceDesc{
 			MethodName: "Upload",
 			Handler:    _SearchService_Upload_Handler,
 		},
+		{
+			MethodName: "Login",
+			Handler:    _SearchService_Login_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "proto.proto",
+}
+
+// Client API for CertService service
+
+type CertServiceClient interface {
+	Cert(ctx context.Context, in *CertRequest, opts ...grpc.CallOption) (*CertEntry, error)
+}
+
+type certServiceClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewCertServiceClient(cc *grpc.ClientConn) CertServiceClient {
+	return &certServiceClient{cc}
+}
+
+func (c *certServiceClient) Cert(ctx context.Context, in *CertRequest, opts ...grpc.CallOption) (*CertEntry, error) {
+	out := new(CertEntry)
+	err := grpc.Invoke(ctx, "/CertService/Cert", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Server API for CertService service
+
+type CertServiceServer interface {
+	Cert(context.Context, *CertRequest) (*CertEntry, error)
+}
+
+func RegisterCertServiceServer(s *grpc.Server, srv CertServiceServer) {
+	s.RegisterService(&_CertService_serviceDesc, srv)
+}
+
+func _CertService_Cert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CertServiceServer).Cert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/CertService/Cert",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CertServiceServer).Cert(ctx, req.(*CertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _CertService_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "CertService",
+	HandlerType: (*CertServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Cert",
+			Handler:    _CertService_Cert_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto.proto",
@@ -230,19 +431,27 @@ var _SearchService_serviceDesc = grpc.ServiceDesc{
 func init() { proto1.RegisterFile("proto.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
-	// 211 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x2e, 0x28, 0xca, 0x2f,
-	0xc9, 0xd7, 0x03, 0x93, 0x4a, 0x96, 0x5c, 0xbc, 0xa1, 0x05, 0x39, 0xf9, 0x89, 0x29, 0x41, 0xa9,
-	0x85, 0xa5, 0xa9, 0xc5, 0x25, 0x42, 0x02, 0x5c, 0xcc, 0xa5, 0x99, 0x29, 0x12, 0x8c, 0x0a, 0x8c,
-	0x1a, 0x9c, 0x41, 0x20, 0xa6, 0x90, 0x18, 0x17, 0x5b, 0x51, 0x6a, 0x72, 0x7e, 0x51, 0x8a, 0x04,
-	0x13, 0x58, 0x10, 0xca, 0x53, 0x32, 0xe1, 0xe2, 0x83, 0x69, 0x2d, 0x2e, 0xc8, 0xcf, 0x2b, 0x4e,
-	0x15, 0x52, 0xe2, 0xe2, 0x29, 0x82, 0xb2, 0x9d, 0xf3, 0x53, 0x52, 0xc1, 0x86, 0xb0, 0x06, 0xa1,
-	0x88, 0x29, 0xb9, 0x72, 0xf1, 0x06, 0xa7, 0x26, 0x16, 0x25, 0x67, 0xe0, 0xb6, 0x50, 0x89, 0x8b,
-	0xa7, 0x18, 0xac, 0x24, 0xb8, 0xa4, 0x28, 0x33, 0x2f, 0x1d, 0x6a, 0x2d, 0x8a, 0x98, 0x92, 0x0e,
-	0x17, 0x1f, 0xcc, 0x18, 0xa8, 0xe5, 0x52, 0x5c, 0x1c, 0x30, 0x8b, 0x24, 0x18, 0x15, 0x98, 0x35,
-	0x38, 0x83, 0xe0, 0x7c, 0xa3, 0x54, 0x98, 0xa5, 0xc1, 0xa9, 0x45, 0x65, 0x99, 0xc9, 0xa9, 0x42,
-	0x9a, 0x5c, 0x6c, 0x10, 0x01, 0x21, 0x3e, 0x3d, 0x14, 0xe7, 0x48, 0xf1, 0xeb, 0xa1, 0x99, 0xab,
-	0xc9, 0xc5, 0x06, 0xf1, 0xa6, 0x10, 0x9f, 0x1e, 0x4a, 0x50, 0x49, 0xf1, 0xeb, 0xa1, 0xfa, 0x3f,
-	0x89, 0x0d, 0x1c, 0xa6, 0xc6, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0x7f, 0xd9, 0x5b, 0x0e, 0x62,
-	0x01, 0x00, 0x00,
+	// 338 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x92, 0x51, 0x4b, 0xfb, 0x30,
+	0x14, 0xc5, 0xe9, 0xf6, 0x5f, 0xff, 0xdb, 0x5d, 0xdb, 0x49, 0x10, 0x29, 0x7d, 0x1a, 0x01, 0xc5,
+	0x81, 0x44, 0x98, 0xaf, 0xbe, 0x0d, 0x1f, 0x04, 0x45, 0xd9, 0xf0, 0xc9, 0xa7, 0xd9, 0x5e, 0x66,
+	0x51, 0x92, 0x7a, 0x93, 0x29, 0x7e, 0x08, 0xbf, 0xb3, 0x34, 0x4d, 0xb6, 0x75, 0xb2, 0x97, 0xb1,
+	0x73, 0x48, 0xef, 0xfd, 0x9d, 0x93, 0xc0, 0xb0, 0x22, 0x65, 0x94, 0xb0, 0xbf, 0xfc, 0x01, 0xe2,
+	0xa7, 0xea, 0x5d, 0x2d, 0x8b, 0x39, 0x7e, 0xac, 0x51, 0x1b, 0x76, 0x04, 0xdd, 0x75, 0x59, 0xa4,
+	0xc1, 0x38, 0x38, 0x1f, 0xcc, 0xeb, 0xbf, 0xec, 0x04, 0x42, 0xc2, 0x5c, 0x51, 0x91, 0x76, 0xac,
+	0xe9, 0x14, 0x3b, 0x86, 0x9e, 0x51, 0x6f, 0x28, 0xd3, 0xae, 0xb5, 0x1b, 0xc1, 0x1f, 0x21, 0xf1,
+	0x03, 0x75, 0xa5, 0xa4, 0x46, 0x96, 0x41, 0x1f, 0x89, 0x14, 0xdd, 0xeb, 0x95, 0x1b, 0xbb, 0xd1,
+	0x8c, 0x43, 0x44, 0xee, 0xdc, 0x4c, 0x15, 0x68, 0x37, 0xf4, 0xe6, 0x2d, 0x8f, 0x3f, 0x43, 0xbc,
+	0xc0, 0x25, 0xe5, 0xaf, 0x87, 0x11, 0x39, 0x44, 0xda, 0x1e, 0x59, 0x18, 0x2a, 0xe5, 0xca, 0x81,
+	0xb6, 0xbc, 0x03, 0xb8, 0x17, 0x90, 0xf8, 0xe1, 0x5b, 0x5c, 0xbf, 0x3e, 0x0d, 0xc6, 0xdd, 0x1a,
+	0xd7, 0x6b, 0x7e, 0x0d, 0xd1, 0x9d, 0x5a, 0x95, 0xf2, 0x30, 0x49, 0x06, 0xfd, 0x6a, 0xa9, 0xf5,
+	0xd7, 0xb6, 0xae, 0x8d, 0xe6, 0xb7, 0x10, 0xbb, 0xaf, 0xdd, 0xaa, 0xfd, 0xf4, 0xc1, 0xdf, 0xf4,
+	0x5b, 0xec, 0xce, 0x2e, 0x76, 0x0c, 0xc3, 0x19, 0x92, 0x71, 0x1c, 0xfc, 0x14, 0x06, 0xb5, 0xbc,
+	0x91, 0x86, 0xbe, 0x59, 0x0a, 0xff, 0x73, 0x25, 0x0d, 0x4a, 0xe3, 0xc0, 0xbc, 0x9c, 0xfe, 0x04,
+	0xbe, 0xca, 0x05, 0xd2, 0x67, 0x99, 0x23, 0x9b, 0x40, 0xd8, 0x18, 0x2c, 0x11, 0xad, 0x92, 0xb3,
+	0x91, 0xd8, 0xeb, 0x65, 0x02, 0x61, 0x73, 0xb1, 0x2c, 0x11, 0xad, 0x27, 0x93, 0x8d, 0xc4, 0xde,
+	0x8d, 0x9f, 0x41, 0xcf, 0x06, 0x65, 0xb1, 0xd8, 0xad, 0x2b, 0x4b, 0x44, 0x2b, 0xff, 0xf4, 0xb2,
+	0x49, 0xe1, 0x61, 0xc6, 0xf0, 0xaf, 0x96, 0x2c, 0x12, 0x3b, 0xd9, 0x32, 0x10, 0x9b, 0x68, 0x2f,
+	0xa1, 0x7d, 0xb4, 0x57, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0xb4, 0x67, 0x0c, 0x3e, 0xc3, 0x02,
+	0x00, 0x00,
 }

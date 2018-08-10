@@ -12,6 +12,19 @@ import (
 	"time"
 )
 
+var (
+	defaultFileStorageDir   = "/data/.mysh/"
+	defaultFileRecorderSize = 10000
+	defaultRecorderNum      = 100000
+	defaultRecorderManager  RecorderManager
+)
+
+func init() {
+	defaultRecorderManager = &recorderManager{
+		recorderSet: lru.NewLRU(defaultRecorderNum),
+	}
+}
+
 type Recorder interface {
 	Find(s string) []string
 	Add(s string) error
@@ -84,13 +97,14 @@ type PersistentRecorder interface {
 	//Dump() recordPersistentModel
 	Save() error
 	Run()
+	Stop()
 }
 
 func NewFileRecorder(capacity int, f string) PersistentRecorder {
 	return &fileRecorder{
 		inited: false,
 		r:      NewRecorder(capacity),
-		f:      f,
+		f:      defaultFileStorageDir + f,
 	}
 }
 
@@ -99,6 +113,7 @@ type fileRecorder struct {
 	m      sync.Mutex
 	r      Recorder
 	f      string
+	stopCh chan interface{}
 }
 
 func (p *fileRecorder) checkInited() {
@@ -115,9 +130,19 @@ func (p *fileRecorder) Run() {
 	ticker := time.NewTicker(time.Second * 1)
 	go func() {
 		for _ = range ticker.C {
-			p.sync()
+			select {
+			case <-ticker.C:
+				p.sync()
+			case <-p.stopCh:
+				p.Save()
+				return
+			}
 		}
 	}()
+}
+
+func (p *fileRecorder) Stop() {
+	p.stopCh <- "Done"
 }
 
 func (p *fileRecorder) sync() error {
@@ -215,4 +240,72 @@ func (p *fileRecorder) initOrLoad() error {
 
 	p.inited = true
 	return nil
+}
+
+type RecorderManager interface {
+	Add(id string, s string) error
+	Find(id string, s string) []string
+}
+
+func DefaultRecorderManager() RecorderManager {
+	return defaultRecorderManager
+}
+
+func NewRecorderManager() RecorderManager {
+	return &recorderManager{
+		recorderSet: lru.NewLRU(defaultRecorderNum),
+	}
+}
+
+type recorderManager struct {
+	mtx         sync.Mutex
+	recorderSet lru.LRUCache
+}
+
+func (r *recorderManager) tryRun(id string) error {
+
+	if _, ok := r.recorderSet.Peek(id); ok {
+		return nil
+	}
+
+	recorder := NewFileRecorder(defaultFileRecorderSize, id)
+	if recorder == nil {
+		return fmt.Errorf("create file recorder error, id:[%v]", id)
+	}
+
+	recorder.Run()
+	r.recorderSet.Add(id, recorder, func(i interface{}) {
+		i.(PersistentRecorder).Stop()
+	})
+
+	return nil
+
+}
+
+func (r *recorderManager) Add(id string, s string) error {
+	r.mtx.Lock()
+	defer r.mtx.Unlock()
+
+	if err := r.tryRun(id); err != nil {
+		return err
+	}
+	obj, _ := r.recorderSet.Get(id)
+	return obj.(PersistentRecorder).Add(s)
+}
+
+func (r *recorderManager) Find(id string, s string) []string {
+	//for connect check
+	if id == "" && s == "" {
+		return nil
+	}
+
+	r.mtx.Lock()
+	defer r.mtx.Unlock()
+
+	if err := r.tryRun(id); err != nil {
+		return nil
+	}
+
+	obj, _ := r.recorderSet.Get(id)
+	return obj.(PersistentRecorder).Find(s)
 }

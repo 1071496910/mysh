@@ -10,7 +10,7 @@ import (
 type LRUCache interface {
 	// Adds a value to the cache, returns true if an eviction occurred and
 	// updates the "recently used"-ness of the key.
-	Add(key, value interface{}) bool
+	Add(key, value interface{}, evictionFuncs ...func(i interface{})) bool
 
 	// Returns key's value from the cache and
 	// updates the "recently used"-ness of the key. #value, isFound
@@ -86,7 +86,7 @@ func (l *lru) Filter(filterFunc func(key string, value interface{}) bool) ([]str
 
 }
 
-func (l *lru) Add(key, value interface{}) bool {
+func (l *lru) Add(key, value interface{}, evictionFuncs ...func(i interface{})) bool {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
 
@@ -112,6 +112,9 @@ func (l *lru) Add(key, value interface{}) bool {
 			if !ok {
 				panic("type error")
 
+			}
+			for _, f := range evictionFuncs {
+				f(v.value)
 			}
 			delete(l.m, fmt.Sprint(v.key))
 			evicted = true

@@ -1,11 +1,16 @@
 package recorder
 
 import (
-	"fmt"
-	"strconv"
+	//"fmt"
+	//"strconv"
 	"testing"
-	"time"
+	//"time"
 )
+
+func TestAdd(t *testing.T) {
+	DefaultRecorderManager().Find("hello", "world")
+
+}
 
 //func TestAdd(t *testing.T) {
 //
@@ -18,21 +23,21 @@ import (
 //
 //}
 
-func TestPsAdd(t *testing.T) {
-	psr := NewPersistentRecorder(100001, "/tmp/tmp-record")
-	psr.Run()
-	psr.Add("higklmn")
-	for i := 0; i < 100000; i++ {
-
-		psr.Add("abcdefg" + strconv.Itoa(i))
-	}
-	start := time.Now()
-	psr.Find("abc")
-	elapsed := time.Since(start)
-	fmt.Println(elapsed)
-	fmt.Println(psr.Find("hig"))
-
-	for {
-	}
-
-}
+//func TestPsAdd(t *testing.T) {
+//	psr := NewPersistentRecorder(100001, "/tmp/tmp-record")
+//	psr.Run()
+//	psr.Add("higklmn")
+//	for i := 0; i < 100000; i++ {
+//
+//		psr.Add("abcdefg" + strconv.Itoa(i))
+//	}
+//	start := time.Now()
+//	psr.Find("abc")
+//	elapsed := time.Since(start)
+//	fmt.Println(elapsed)
+//	fmt.Println(psr.Find("hig"))
+//
+//	for {
+//	}
+//
+//}
