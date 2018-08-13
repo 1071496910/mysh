@@ -20,6 +20,7 @@ message SearchRequest {
 
 message SearchResponse {
   repeated string response = 1;
+  int32 responseCode       = 2;
 }
 
 message LoginRequest {
@@ -32,10 +33,19 @@ message LoginResponse {
   string token        = 2;
 }
 
+message LogoutRequest {
+  string uid      = 1;
+}
+
+message LogoutResponse {
+  int32  responseCode = 1;
+}
+
 service SearchService {
   rpc Search(SearchRequest) returns (SearchResponse);
   rpc Upload(UploadRequest) returns (UploadResponse);
   rpc Login(LoginRequest)   returns (LoginResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
 }
 
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/1071496910/mysh/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -12,7 +13,9 @@ import (
 
 var recorder proto.SearchServiceClient
 
-var logDir = "/var/log/mysh"
+var logDir = "/var/log/mysh/"
+
+var clientToken = ""
 
 func init() {
 	if err := os.MkdirAll(logDir, 0644); err != nil {
@@ -34,19 +37,33 @@ func init() {
 	recorder = proto.NewSearchServiceClient(conn)
 }
 
+func login() {
+	resp, err := recorder.Login(context.Background(), &proto.LoginRequest{
+		Uid:      "hpc",
+		Password: "123456",
+	})
+	if err != nil {
+		panic(err)
+	}
+	clientToken = resp.Token
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		return
 	}
 
+	login()
+
 	command := os.Args[1]
 	for i := 2; i < len(os.Args); i++ {
 		command = command + " " + os.Args[i]
 	}
-	recorder.Upload(context.Background(), &proto.UploadRequest{
+	fmt.Println(recorder.Upload(context.Background(), &proto.UploadRequest{
+		Token:  clientToken,
 		Record: command,
 		Uid:    "hpc",
-	})
+	}))
 
 	return
 

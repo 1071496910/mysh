@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	defaultFileStorageDir   = "/data/.mysh/"
+	defaultFileStorageDir   = "/var/lib/mysh/"
 	defaultFileRecorderSize = 10000
 	defaultRecorderNum      = 100000
 	defaultRecorderManager  RecorderManager

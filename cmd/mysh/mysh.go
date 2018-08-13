@@ -42,6 +42,10 @@ var recorder proto.SearchServiceClient
 
 var logDir = "/var/log/mysh/"
 
+var clientToken = ""
+var passworCache = "123456"
+var uidCache = "hpc"
+
 func init() {
 
 	if err := os.MkdirAll(logDir, 0644); err != nil {
@@ -115,14 +119,14 @@ func cleanLineTail() {
 func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 
 	//check network
-	_, err := recorder.Search(context.Background(), &proto.SearchRequest{
+	resp, err := recorder.Search(context.Background(), &proto.SearchRequest{
 		SearchString: "",
 		Uid:          "",
 	})
 
 	//offline mode
 	if err != nil {
-		//fmt.Println(err)
+		fmt.Println(err)
 		bashinBuffer.WriteByte(ctrl('r'))
 
 		for {
@@ -137,6 +141,11 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 
 			}
 		}
+	}
+
+	//login again
+	if resp.ResponseCode == 403 {
+		login()
 	}
 
 	saveCursor()
@@ -263,6 +272,7 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 					//candidateCommands = recorder.Find(string(searchBuffer))
 					response, err := recorder.Search(context.Background(), &proto.SearchRequest{
 						Uid:          "hpc",
+						Token:        clientToken,
 						SearchString: string(searchBuffer),
 					})
 					if err != nil {
@@ -321,32 +331,7 @@ func Run() error {
 		}
 	}()
 
-	//var setAgentCommand = `export PROMPT_COMMAND='mysh-agent $(history 1 | { read x cmd; echo "$cmd"; })'
-	//`
-
 	go func() {
-		//fd := int(ptmx.Fd())
-
-		//{
-		//	const ioctlReadTermios = 0x5401  // syscall.TCGETS
-		//	const ioctlWriteTermios = 0x5402 // syscall.TCSETS
-
-		//	var oldState syscall.Termios
-		//	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlReadTermios, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0); err != 0 {
-		//		panic(err)
-		//	}
-
-		//	newState := oldState
-		//	newState.Lflag &^= syscall.ECHO
-		//	newState.Lflag |= syscall.ICANON | syscall.ISIG
-		//	newState.Iflag |= syscall.ICRNL
-		//	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlWriteTermios, uintptr(unsafe.Pointer(&newState)), 0, 0, 0); err != 0 {
-		//		panic(err)
-		//	}
-		//	ptmx.WriteString(setAgentCommand)
-
-		//	syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlWriteTermios, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
-		//}
 
 		for {
 			time.Sleep(1 * time.Millisecond)
@@ -375,8 +360,31 @@ func Run() error {
 	return nil
 }
 
+func login() {
+	resp, err := recorder.Login(context.Background(), &proto.LoginRequest{
+		Uid:      "hpc",
+		Password: "123456",
+	})
+	if err != nil {
+		panic(err)
+	}
+	clientToken = resp.Token
+	//fmt.Println("DEBUG: get token", clientToken)
+}
+
 func main() {
+	//get token
+	login()
+
 	if err := Run(); err != nil {
 		log.Fatal(err)
+	}
+
+	if resp, err := recorder.Logout(context.Background(), &proto.LogoutRequest{
+		Uid: "hpc",
+	}); err == nil {
+		if resp.ResponseCode == 200 {
+			fmt.Println("Logout success!")
+		}
 	}
 }
