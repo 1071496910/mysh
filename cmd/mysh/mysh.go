@@ -21,6 +21,7 @@ import (
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh/terminal"
 
+	"github.com/1071496910/mysh/cons"
 	"github.com/1071496910/mysh/proto"
 
 	"google.golang.org/grpc"
@@ -47,7 +48,6 @@ var (
 	clientToken  = ""
 	passworCache = "123456"
 	uidCache     = "hpc"
-	crt          = "/var/lib/mysh/cert/www.mysh.cn.crt"
 )
 
 func init() {
@@ -64,12 +64,12 @@ func init() {
 
 	grpclog.SetLogger(newLogger)
 	// Create the client TLS credentials
-	creds, err := credentials.NewClientTLSFromFile(crt, "")
+	creds, err := credentials.NewClientTLSFromFile(cons.Crt, "")
 	if err != nil {
 		panic(err)
 	}
 
-	conn, err := grpc.Dial("www.mysh.cn:8080", grpc.WithTransportCredentials(creds))
+	conn, err := grpc.Dial(cons.Domain+":8080", grpc.WithTransportCredentials(creds))
 	if err != nil {
 		panic(err)
 	}

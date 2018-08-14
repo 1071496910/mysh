@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"github.com/1071496910/mysh/auth"
+	"github.com/1071496910/mysh/cons"
 	"github.com/1071496910/mysh/proto"
 	"github.com/1071496910/mysh/recorder"
 	"golang.org/x/net/context"
@@ -12,11 +13,6 @@ import (
 	"google.golang.org/grpc/reflection"
 	"log"
 	"net"
-)
-
-var (
-	crt = "/var/lib/mysh/cert/www.mysh.cn.crt"
-	key = "/var/lib/mysh/cert/www.mysh.cn.key"
 )
 
 type SearchServer struct {
@@ -36,7 +32,7 @@ func (ss *SearchServer) Run() error {
 		return fmt.Errorf("init network error: %v", err)
 	}
 
-	creds, err := credentials.NewServerTLSFromFile(crt, key)
+	creds, err := credentials.NewServerTLSFromFile(cons.Crt, cons.Key)
 	if err != nil {
 		return fmt.Errorf("could not load TLS keys: %s", err)
 	}

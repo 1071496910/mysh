@@ -3,11 +3,10 @@ package auth
 import (
 	"crypto/md5"
 	"fmt"
+	"github.com/1071496910/mysh/cons"
 	"io/ioutil"
 	"strconv"
 )
-
-var defaultCertFile = "/var/lib/mysh/cert/www.mysh.cn.crt"
 
 var passwordCache = make(map[string]string)
 
@@ -56,7 +55,7 @@ func UpdateTokenCache(uid string, token string, extra ...string) error {
 }
 
 func GetCert() (string, error) {
-	data, err := ioutil.ReadFile(defaultCertFile)
+	data, err := ioutil.ReadFile(cons.Crt)
 	if err != nil {
 		return "", err
 	}
