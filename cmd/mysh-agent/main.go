@@ -2,20 +2,22 @@ package main
 
 import (
 	"context"
-	"fmt"
+	//"fmt"
 	"github.com/1071496910/mysh/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 	"log"
 	"os"
 	"path/filepath"
 )
 
-var recorder proto.SearchServiceClient
-
-var logDir = "/var/log/mysh/"
-
-var clientToken = ""
+var (
+	recorder    proto.SearchServiceClient
+	logDir      = "/var/log/mysh/"
+	clientToken = ""
+	crt         = "/var/lib/mysh/cert/www.mysh.cn.crt"
+)
 
 func init() {
 	if err := os.MkdirAll(logDir, 0644); err != nil {
@@ -30,7 +32,13 @@ func init() {
 
 	grpclog.SetLogger(newLogger)
 
-	conn, err := grpc.Dial("localhost:8080", grpc.WithInsecure())
+	// Create the client TLS credentials
+	creds, err := credentials.NewClientTLSFromFile(crt, "")
+	if err != nil {
+		panic(err)
+	}
+
+	conn, err := grpc.Dial("www.mysh.cn:8080", grpc.WithTransportCredentials(creds))
 	if err != nil {
 		panic(err)
 	}
@@ -59,11 +67,11 @@ func main() {
 	for i := 2; i < len(os.Args); i++ {
 		command = command + " " + os.Args[i]
 	}
-	fmt.Println(recorder.Upload(context.Background(), &proto.UploadRequest{
+	recorder.Upload(context.Background(), &proto.UploadRequest{
 		Token:  clientToken,
 		Record: command,
 		Uid:    "hpc",
-	}))
+	})
 
 	return
 

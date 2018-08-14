@@ -7,10 +7,16 @@ import (
 	"github.com/1071496910/mysh/recorder"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"log"
 	"net"
+)
+
+var (
+	crt = "/var/lib/mysh/cert/www.mysh.cn.crt"
+	key = "/var/lib/mysh/cert/www.mysh.cn.key"
 )
 
 type SearchServer struct {
@@ -30,7 +36,12 @@ func (ss *SearchServer) Run() error {
 		return fmt.Errorf("init network error: %v", err)
 	}
 
-	s := grpc.NewServer()
+	creds, err := credentials.NewServerTLSFromFile(crt, key)
+	if err != nil {
+		return fmt.Errorf("could not load TLS keys: %s", err)
+	}
+
+	s := grpc.NewServer(grpc.Creds(creds))
 	proto.RegisterSearchServiceServer(s, ss)
 	reflection.Register(s)
 	if err := s.Serve(lis); err != nil {

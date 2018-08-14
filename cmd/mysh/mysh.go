@@ -24,6 +24,7 @@ import (
 	"github.com/1071496910/mysh/proto"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -35,16 +36,19 @@ func meta(b byte) byte {
 	return b | 0x07f
 }
 
-var ErrShortWrite = errors.New("short write")
-var EOF = errors.New("EOF")
+var (
+	ErrShortWrite = errors.New("short write")
+	EOF           = errors.New("EOF")
 
-var recorder proto.SearchServiceClient
+	recorder proto.SearchServiceClient
 
-var logDir = "/var/log/mysh/"
+	logDir = "/var/log/mysh/"
 
-var clientToken = ""
-var passworCache = "123456"
-var uidCache = "hpc"
+	clientToken  = ""
+	passworCache = "123456"
+	uidCache     = "hpc"
+	crt          = "/var/lib/mysh/cert/www.mysh.cn.crt"
+)
 
 func init() {
 
@@ -59,8 +63,13 @@ func init() {
 	newLogger := log.New(logFile, "[mysh]", log.LstdFlags)
 
 	grpclog.SetLogger(newLogger)
+	// Create the client TLS credentials
+	creds, err := credentials.NewClientTLSFromFile(crt, "")
+	if err != nil {
+		panic(err)
+	}
 
-	conn, err := grpc.Dial("localhost:8080", grpc.WithInsecure())
+	conn, err := grpc.Dial("www.mysh.cn:8080", grpc.WithTransportCredentials(creds))
 	if err != nil {
 		panic(err)
 	}

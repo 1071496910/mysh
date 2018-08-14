@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-var defaultCertFile = "/data/mysh/cert/mysh.cert"
+var defaultCertFile = "/var/lib/mysh/cert/www.mysh.cn.crt"
 
 var passwordCache = make(map[string]string)
 
