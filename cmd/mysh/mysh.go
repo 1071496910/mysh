@@ -1,6 +1,7 @@
 package main
 
 import (
+	//"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -13,20 +14,21 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	//"strconv"
+	"strconv"
 	//"strings"
 	"path/filepath"
 	"time"
 
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh/terminal"
-
-	"github.com/1071496910/mysh/cons"
-	"github.com/1071496910/mysh/proto"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
+
+	"github.com/1071496910/mysh/cons"
+	"github.com/1071496910/mysh/proto"
+	"github.com/1071496910/mysh/util"
+	"github.com/1071496910/mysh/util/client"
 )
 
 func ctrl(b byte) byte {
@@ -45,9 +47,8 @@ var (
 
 	logDir = "/var/log/mysh/"
 
-	clientToken  = ""
-	passworCache = "123456"
-	uidCache     = "hpc"
+	clientToken = ""
+	loginer     func() string
 )
 
 func init() {
@@ -63,17 +64,22 @@ func init() {
 	newLogger := log.New(logFile, "[mysh]", log.LstdFlags)
 
 	grpclog.SetLogger(newLogger)
+
+	if err := util.PullCert(); err != nil {
+		panic(err)
+	}
 	// Create the client TLS credentials
 	creds, err := credentials.NewClientTLSFromFile(cons.Crt, "")
 	if err != nil {
 		panic(err)
 	}
 
-	conn, err := grpc.Dial(cons.Domain+":8080", grpc.WithTransportCredentials(creds))
+	conn, err := grpc.Dial(cons.Domain+":"+strconv.Itoa(cons.Port), grpc.WithTransportCredentials(creds))
 	if err != nil {
 		panic(err)
 	}
 	recorder = proto.NewSearchServiceClient(conn)
+	loginer = client.MakeEnvLoginFunc(recorder)
 }
 
 func streamCopy(dst io.Writer, src io.Reader) (int64, error) {
@@ -280,7 +286,7 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 				if searchIndex > 0 {
 					//candidateCommands = recorder.Find(string(searchBuffer))
 					response, err := recorder.Search(context.Background(), &proto.SearchRequest{
-						Uid:          "hpc",
+						Uid:          os.Getenv(client.EnvKeyUid),
 						Token:        clientToken,
 						SearchString: string(searchBuffer),
 					})
@@ -370,30 +376,25 @@ func Run() error {
 }
 
 func login() {
-	resp, err := recorder.Login(context.Background(), &proto.LoginRequest{
-		Uid:      "hpc",
-		Password: "123456",
-	})
-	if err != nil {
-		panic(err)
-	}
-	clientToken = resp.Token
-	//fmt.Println("DEBUG: get token", clientToken)
+
+	clientToken = loginer()
 }
 
 func main() {
 	//get token
 	login()
+	defer func() {
+		logoutReq := &proto.LoginRequest{
+			Uid: os.Getenv(client.EnvKeyUid),
+		}
+
+		if resp, err := recorder.Logout(context.Background(), logoutReq); err == nil && resp.ResponseCode == 200 {
+			fmt.Println("Logout success!")
+		}
+	}()
 
 	if err := Run(); err != nil {
 		log.Fatal(err)
 	}
 
-	if resp, err := recorder.Logout(context.Background(), &proto.LogoutRequest{
-		Uid: "hpc",
-	}); err == nil {
-		if resp.ResponseCode == 200 {
-			fmt.Println("Logout success!")
-		}
-	}
 }

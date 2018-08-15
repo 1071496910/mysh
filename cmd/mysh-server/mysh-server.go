@@ -1,11 +1,15 @@
 package main
 
 import (
-	"github.com/1071496910/mysh/server"
 	"log"
+
+	"github.com/1071496910/mysh/cons"
+	"github.com/1071496910/mysh/server"
 )
 
 func main() {
-	s := server.NewSearchServer(8080)
+	s := server.NewSearchServer(cons.Port)
+	cs := server.NewCertServer(cons.CertPort)
+	go cs.Run()
 	log.Fatal(s.Run())
 }

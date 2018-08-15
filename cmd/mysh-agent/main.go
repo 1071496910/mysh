@@ -2,21 +2,25 @@ package main
 
 import (
 	"context"
-	//"fmt"
-	"github.com/1071496910/mysh/cons"
-	"github.com/1071496910/mysh/proto"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/grpclog"
 	"log"
 	"os"
 	"path/filepath"
+	//"fmt"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/grpclog"
+
+	"github.com/1071496910/mysh/cons"
+	"github.com/1071496910/mysh/proto"
+	"github.com/1071496910/mysh/util/client"
 )
 
 var (
 	recorder    proto.SearchServiceClient
 	logDir      = "/var/log/mysh/"
 	clientToken = ""
+	loginer     func() string
 )
 
 func init() {
@@ -43,17 +47,12 @@ func init() {
 		panic(err)
 	}
 	recorder = proto.NewSearchServiceClient(conn)
+	loginer = client.MakeEnvLoginFunc(recorder)
 }
 
 func login() {
-	resp, err := recorder.Login(context.Background(), &proto.LoginRequest{
-		Uid:      "hpc",
-		Password: "123456",
-	})
-	if err != nil {
-		panic(err)
-	}
-	clientToken = resp.Token
+
+	clientToken = loginer()
 }
 
 func main() {
@@ -70,7 +69,7 @@ func main() {
 	recorder.Upload(context.Background(), &proto.UploadRequest{
 		Token:  clientToken,
 		Record: command,
-		Uid:    "hpc",
+		Uid:    os.Getenv(client.EnvKeyUid),
 	})
 
 	return

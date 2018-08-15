@@ -48,7 +48,6 @@ func UpdateTokenCache(uid string, token string, extra ...string) error {
 	}
 
 	loginCache[key] = token
-	fmt.Println(loginCache)
 
 	return nil
 

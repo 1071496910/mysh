@@ -124,3 +124,41 @@ func (ss *SearchServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*
 	return resp, fmt.Errorf("Can't get ip from peer")
 
 }
+
+type CertServer struct {
+	port int
+}
+
+func NewCertServer(port int) *CertServer {
+	return &CertServer{
+		port: port,
+	}
+
+}
+
+func (cs *CertServer) Cert(ctx context.Context, req *proto.CertRequest) (*proto.CertEntry, error) {
+	if cert, err := auth.GetCert(); err == nil {
+		return &proto.CertEntry{
+			Content: cert,
+		}, nil
+	} else {
+
+		return nil, err
+	}
+
+}
+
+func (cs *CertServer) Run() error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", cs.port))
+	if err != nil {
+		return fmt.Errorf("init network error: %v", err)
+	}
+
+	s := grpc.NewServer()
+	proto.RegisterCertServiceServer(s, cs)
+	reflection.Register(s)
+	if err := s.Serve(lis); err != nil {
+		return err
+	}
+	return nil
+}
