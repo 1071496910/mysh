@@ -3,21 +3,18 @@ package auth
 import (
 	"crypto/md5"
 	"fmt"
-	"github.com/1071496910/mysh/cons"
 	"io/ioutil"
+	"log"
 	"strconv"
+
+	"github.com/1071496910/mysh/cons"
+	"github.com/1071496910/mysh/db"
 )
 
-var passwordCache = make(map[string]string)
-
-var loginCache = make(map[string]string)
-
-func init() {
-	passwordCache["hpc"] = "123456"
-	passwordCache["hpc2"] = "2123456"
-	passwordCache["hpc3"] = "3123456"
-	passwordCache["hpc4"] = "4123456"
-}
+var (
+	loginCache     = make(map[string]string)
+	passwordGetter = db.MakePasswordGetter()
+)
 
 func CheckLoginState(uid string, token string, extra ...string) bool {
 	key := uid
@@ -83,19 +80,20 @@ func checkPassword(password string, saltPassword string) bool {
 }
 
 func Login(uid string, password string, extra ...string) (string, bool) {
-	loginSuccess := false
+	loginState := false
 	token := ""
-	if p, ok := passwordCache[uid]; ok {
-		if checkPassword(password, p) {
-			loginSuccess = true
-		}
-	} else {
-		//TODO: read password and compare
+	p, err := passwordGetter(uid)
+	if err != nil {
+		log.Println(err)
+		return "", false
+	}
+	if checkPassword(password, p) {
+		loginState = true
 	}
 
-	if loginSuccess {
+	if loginState {
 		token = genToken(uid, extra...)
 	}
 
-	return token, loginSuccess
+	return token, loginState
 }

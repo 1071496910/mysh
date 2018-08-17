@@ -1,22 +1,21 @@
 package main
 
 import (
-	//"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"syscall"
-	//"unsafe"
-	//"io/ioutil"
+	"io/ioutil"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
-	"strconv"
-	//"strings"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/kr/pty"
@@ -49,6 +48,10 @@ var (
 
 	clientToken = ""
 	loginer     func() string
+
+	lastCommand = ""
+
+	unixSock = ""
 )
 
 func init() {
@@ -79,7 +82,7 @@ func init() {
 		panic(err)
 	}
 	recorder = proto.NewSearchServiceClient(conn)
-	loginer = client.MakeEnvLoginFunc(recorder)
+	loginer = client.MakeVarLoginFunc(recorder)
 }
 
 func streamCopy(dst io.Writer, src io.Reader) (int64, error) {
@@ -141,7 +144,7 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 
 	//offline mode
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		bashinBuffer.WriteByte(ctrl('r'))
 
 		for {
@@ -286,7 +289,7 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 				if searchIndex > 0 {
 					//candidateCommands = recorder.Find(string(searchBuffer))
 					response, err := recorder.Search(context.Background(), &proto.SearchRequest{
-						Uid:          os.Getenv(client.EnvKeyUid),
+						Uid:          client.UidCache,
 						Token:        clientToken,
 						SearchString: string(searchBuffer),
 					})
@@ -380,16 +383,70 @@ func login() {
 	clientToken = loginer()
 }
 
+func uploadProxyHandler(resp http.ResponseWriter, req *http.Request) {
+	body, _ := ioutil.ReadAll(req.Body)
+	defer req.Body.Close()
+
+	if string(body) == lastCommand {
+		return
+	}
+
+	rp, err := recorder.Search(context.Background(), &proto.SearchRequest{
+		SearchString: "",
+		Uid:          "",
+	})
+
+	//offline mode
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	//login again
+	if rp.ResponseCode == 403 {
+		login()
+	}
+
+	recorder.Upload(context.Background(), &proto.UploadRequest{
+		Token:  clientToken,
+		Record: string(body),
+	})
+
+}
+
+func uploadProxyServer() {
+	unixSock = filepath.Join(cons.UnixSocketDir, "mysh."+strconv.Itoa(os.Getpid())+".sock")
+
+	// Start Server
+	os.Remove(unixSock)
+	unixListener, err := net.Listen("unix", unixSock)
+	if err != nil {
+		log.Fatal("Listen (UNIX socket): ", err)
+	}
+	defer unixListener.Close()
+	log.Fatal(http.Serve(unixListener, http.HandlerFunc(uploadProxyHandler)))
+}
+
 func main() {
 	//get token
 	login()
+
+	go uploadProxyServer()
+
+	os.Setenv(cons.EnvMyshPidKey, strconv.Itoa(os.Getpid()))
+
 	defer func() {
-		logoutReq := &proto.LoginRequest{
-			Uid: os.Getenv(client.EnvKeyUid),
+		logoutReq := &proto.LogoutRequest{
+			Uid: client.UidCache,
 		}
 
 		if resp, err := recorder.Logout(context.Background(), logoutReq); err == nil && resp.ResponseCode == 200 {
 			fmt.Println("Logout success!")
+		}
+	}()
+	defer func() {
+		if err := os.RemoveAll(unixSock); err != nil {
+			fmt.Println(err)
 		}
 	}()
 
