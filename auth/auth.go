@@ -82,6 +82,9 @@ func checkPassword(password string, saltPassword string) bool {
 func Login(uid string, password string, extra ...string) (string, bool) {
 	loginState := false
 	token := ""
+	if passwordGetter == nil {
+		return "", false
+	}
 	p, err := passwordGetter(uid)
 	if err != nil {
 		log.Println(err)

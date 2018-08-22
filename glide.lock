@@ -1,43 +1,128 @@
-hash: 100ecc03acf49c1ff24f559b06265d7fd488a0ebc249c981ccd2d46ffd47ac87
-updated: 2018-08-16T14:16:21.285729462+08:00
+hash: 094f44665e1602d6838c8e93b2b6f254b695499dbc84de23dc28de728965d09b
+updated: 2018-08-22T14:49:33.77558469+08:00
 imports:
+- name: github.com/coreos/etcd
+  version: 2921ab670fa646c2cbb3ba53b5c5bc11ea47632f
+  subpackages:
+  - auth/authpb
+  - clientv3
+  - clientv3/balancer
+  - clientv3/balancer/picker
+  - clientv3/balancer/resolver/endpoint
+  - etcdserver/api/v3rpc/rpctypes
+  - etcdserver/etcdserverpb
+  - mvcc/mvccpb
+  - pkg/logutil
+  - pkg/systemd
+  - pkg/types
+  - raft
+  - raft/raftpb
+- name: github.com/coreos/go-systemd
+  version: 88bfeed483d372fa1298dd859662e4b9a13d68cb
+  subpackages:
+  - journal
+- name: github.com/coreos/pkg
+  version: 97fdf19511ea361ae1c100dd393cc47f8dcfa1e1
+  subpackages:
+  - capnslog
 - name: github.com/go-sql-driver/mysql
   version: 99ff426eb706cffe92ff3d058e168b278cabf7c7
+- name: github.com/gogo/protobuf
+  version: 98f6aa8b3bcf03e45b1a8b48257c754766d5c3c8
+  subpackages:
+  - gogoproto
+  - proto
+  - protoc-gen-gogo/descriptor
 - name: github.com/golang/protobuf
-  version: 8616e8ee5e20a1704615e6c8d7afcdac06087a67
+  version: b27b920f9e71b439b873b17bf99f56467623814a
   subpackages:
   - proto
   - protoc-gen-go/descriptor
+  - ptypes
+  - ptypes/any
+  - ptypes/duration
+  - ptypes/timestamp
+- name: github.com/grpc-ecosystem/go-grpc-middleware
+  version: e9c5d9645c437ab1b204cff969a2c0fb16cd4276
+  subpackages:
+  - util/backoffutils
 - name: github.com/kr/pty
   version: fa756f09eeb418bf1cc6268c66ceaad9bb98f598
+- name: go.uber.org/atomic
+  version: 1ea20fb1cbb1cc08cbd0d913a96dead89aa18289
+- name: go.uber.org/multierr
+  version: 3c4937480c32f4c13a875a1829af76c98ca3d40a
+- name: go.uber.org/zap
+  version: 67bc79d13d155c02fd008f721863ff8cc5f30659
+  subpackages:
+  - buffer
+  - internal/bufferpool
+  - internal/color
+  - internal/exit
+  - zapcore
 - name: golang.org/x/crypto
-  version: 1f22c0103821b9390939b6776727195525381532
+  version: 614d502a4dac94afa3a6ce146bd1736da82514c6
   subpackages:
   - ssh/terminal
 - name: golang.org/x/net
-  version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
+  version: 922f4815f713f213882e8ef45e0d315b164d705c
   subpackages:
   - context
+  - http/httpguts
   - http2
   - http2/hpack
+  - idna
   - internal/timeseries
-  - lex/httplex
   - trace
+- name: golang.org/x/sys
+  version: 3b58ed4ad3395d483fc92d5d14123ce2c3581fec
+  subpackages:
+  - unix
+  - windows
+- name: golang.org/x/text
+  version: 6e3c4e7365ddcc329f090f96e4348398f6310088
+  subpackages:
+  - secure/bidirule
+  - transform
+  - unicode/bidi
+  - unicode/norm
 - name: google.golang.org/appengine
-  version: 4f7eeb5305a4ba1966344836ba4af9996b7b4e05
+  version: 4216e58b9158e5f1c906f1aca75162a46a2ec88a
   subpackages:
   - cloudsql
-- name: google.golang.org/grpc
-  version: 777daa17ff9b5daef1cfdf915088a2ada3332bf0
+- name: google.golang.org/genproto
+  version: c66870c02cf823ceb633bcd05be3c7cda29976f4
   subpackages:
+  - googleapis/rpc/status
+- name: google.golang.org/grpc
+  version: 9907ae0e57ce159e835381ed54eb271206bf7b12
+  subpackages:
+  - balancer
+  - balancer/base
+  - balancer/roundrobin
   - codes
+  - connectivity
   - credentials
+  - encoding
+  - encoding/proto
   - grpclog
+  - health/grpc_health_v1
   - internal
+  - internal/backoff
+  - internal/channelz
+  - internal/envconfig
+  - internal/grpcrand
+  - internal/transport
+  - keepalive
   - metadata
   - naming
   - peer
   - reflection
   - reflection/grpc_reflection_v1alpha
-  - transport
+  - resolver
+  - resolver/dns
+  - resolver/passthrough
+  - stats
+  - status
+  - tap
 testImports: []

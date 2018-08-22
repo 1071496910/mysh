@@ -46,7 +46,9 @@ func main() {
 	}
 
 	client := &http.Client{Transport: tr}
-	client.Post("http://", "text/plain", bytes.NewBuffer([]byte(command)))
+	if _, err := client.Post("http://xxx", "text/plain", bytes.NewBuffer([]byte(command))); err != nil {
+		l.Println(err)
+	}
 
 	return
 

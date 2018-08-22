@@ -89,7 +89,7 @@ func (ss *SearchServer) Upload(ctx context.Context, req *proto.UploadRequest) (*
 
 func (ss *SearchServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	resp := &proto.LoginResponse{
-		ResponseCode: 503,
+		ResponseCode: 403,
 	}
 	if p, ok := peer.FromContext(ctx); ok {
 		if token, ok := auth.Login(req.Uid, req.Password, p.Addr.String()); ok {

@@ -410,7 +410,9 @@ func uploadProxyHandler(resp http.ResponseWriter, req *http.Request) {
 	recorder.Upload(context.Background(), &proto.UploadRequest{
 		Token:  clientToken,
 		Record: string(body),
+		Uid:    client.UidCache,
 	})
+	lastCommand = string(body)
 
 }
 

@@ -1,7 +1,22 @@
 package: github.com/1071496910/mysh
 import:
+- package: github.com/coreos/etcd
+  subpackages:
+  - clientv3
+- package: github.com/go-sql-driver/mysql
+- package: github.com/golang/protobuf
+  subpackages:
+  - proto
 - package: github.com/kr/pty
-  version: ^1.1.2
 - package: golang.org/x/crypto
   subpackages:
   - ssh/terminal
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: google.golang.org/grpc
+  subpackages:
+  - credentials
+  - grpclog
+  - peer
+  - reflection

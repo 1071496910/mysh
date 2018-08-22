@@ -14,7 +14,8 @@ func MakePasswordGetter() func(uid string) (string, error) {
 	db, err := sql.Open("mysql", cons.MysqlStr)
 	if err != nil {
 		log.Println(err)
-		return nil
+		panic(err)
+		//return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), cons.MysqlTimeout)
@@ -23,7 +24,8 @@ func MakePasswordGetter() func(uid string) (string, error) {
 
 	if err != nil {
 		log.Println(err)
-		return nil
+		panic(err)
+		//return nil
 	}
 
 	return func(uid string) (string, error) {

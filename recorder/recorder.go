@@ -17,6 +17,7 @@ var (
 	defaultFileRecorderSize = 10000
 	defaultRecorderNum      = 100000
 	defaultRecorderManager  RecorderManager
+	defaultEtcdPrefix       = "/mysh/"
 )
 
 func init() {
@@ -100,12 +101,197 @@ type PersistentRecorder interface {
 	Stop()
 }
 
+//func NewFileRecorder(capacity int, f string) PersistentRecorder {
+//	return &fileRecorder{
+//		inited: false,
+//		r:      NewRecorder(capacity),
+//		f:      defaultFileStorageDir + f,
+//	}
+//}
+
 func NewFileRecorder(capacity int, f string) PersistentRecorder {
-	return &fileRecorder{
+	return &persistentRecorder{
 		inited: false,
 		r:      NewRecorder(capacity),
 		f:      defaultFileStorageDir + f,
+		storageFunc: func(f string, data []byte) error {
+			return ioutil.WriteFile(f, data, 0644)
+		},
+		tryInitFunc: func(f string) error {
+
+			if _, err := os.Stat(f); os.IsNotExist(err) {
+
+				f, err := os.Create(f)
+				if err == nil {
+					defer f.Close()
+				}
+				return err
+			}
+			return nil
+		},
+		loadFunc: func(f string) ([]byte, error) {
+			return ioutil.ReadFile(f)
+		},
 	}
+}
+
+func NewEtcdRecorder(capacity int, f string) PersistentRecorder {
+	return &persistentRecorder{
+		inited: false,
+		r:      NewRecorder(capacity),
+		f:      defaultEtcdPrefix + f,
+		storageFunc: func(f string, data []byte) error {
+			return ioutil.WriteFile(f, data, 0644)
+		},
+		tryInitFunc: func(f string) error {
+
+			if _, err := os.Stat(f); os.IsNotExist(err) {
+
+				f, err := os.Create(f)
+				if err == nil {
+					defer f.Close()
+				}
+				return err
+			}
+			return nil
+		},
+		loadFunc: func(f string) ([]byte, error) {
+			return ioutil.ReadFile(f)
+		},
+	}
+
+}
+
+type persistentRecorder struct {
+	inited      bool
+	m           sync.Mutex
+	r           Recorder
+	f           string
+	stopCh      chan interface{}
+	storageFunc func(string, []byte) error
+	tryInitFunc func(string) error
+	loadFunc    func(string) ([]byte, error)
+}
+
+func (p *persistentRecorder) checkInited() {
+	if !p.inited {
+		log.Fatalf("record [%v] is not inited or load ", p.f)
+	}
+}
+
+func (p *persistentRecorder) Run() {
+
+	p.initOrLoad()
+
+	ticker := time.NewTicker(time.Second * 1)
+	go func() {
+		for _ = range ticker.C {
+			select {
+			case <-ticker.C:
+				p.sync()
+			case <-p.stopCh:
+				p.Save()
+				return
+			}
+		}
+	}()
+}
+
+func (p *persistentRecorder) Stop() {
+	p.stopCh <- "Done"
+}
+
+func (p *persistentRecorder) sync() error {
+	p.checkInited()
+
+	p.m.Lock()
+	defer p.m.Unlock()
+
+	data, err := json.Marshal(p.r.List())
+	if err != nil {
+		log.Printf("parse [%v] records error...\n", p.f)
+		return err
+	}
+
+	err = p.storageFunc(p.f, data)
+	//err = ioutil.WriteFile(p.f, data, 0644)
+	if err != nil {
+		log.Printf("sync [%v] records error...\n", p.f)
+		return err
+	}
+	return nil
+}
+
+func (p *persistentRecorder) Add(s string) error {
+	p.checkInited()
+
+	p.m.Lock()
+	defer p.m.Unlock()
+
+	if err := p.r.Add(s); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (p *persistentRecorder) Find(s string) []string {
+	p.checkInited()
+
+	p.m.Lock()
+	defer p.m.Unlock()
+
+	return p.r.Find(s)
+}
+
+func (p *persistentRecorder) List() []string {
+	p.checkInited()
+	p.m.Lock()
+	defer p.m.Unlock()
+
+	return p.r.List()
+}
+
+//func (p *persistentRecorder) Dump() recordPersistentModel {
+//	p.m.Lock()
+//	defer p.m.Unlock()
+//
+//	return p.r.Dump()
+//}
+
+func (p *persistentRecorder) Save() error {
+	p.checkInited()
+	return p.sync()
+}
+
+func (p *persistentRecorder) initOrLoad() error {
+
+	if err := p.tryInitFunc(p.f); err != nil {
+		return err
+	}
+	p.inited = true
+
+	data, err := p.loadFunc(p.f)
+	if err != nil {
+		return err
+	}
+
+	recordObj := []string{}
+	if len(data) == 0 {
+		p.inited = true
+		return nil
+	}
+	if err := json.Unmarshal(data, &recordObj); err != nil {
+		return err
+	}
+	for i := len(recordObj) - 1; i >= 0; i-- {
+		if err := p.r.Add(recordObj[i]); err != nil {
+			return err
+		}
+	}
+
+	p.inited = true
+	return nil
 }
 
 type fileRecorder struct {
