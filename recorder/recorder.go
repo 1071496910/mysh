@@ -3,6 +3,7 @@ package recorder
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/1071496910/mysh/lib/etcd"
 	"github.com/1071496910/mysh/lru"
 	"index/suffixarray"
 	"io/ioutil"
@@ -17,6 +18,7 @@ var (
 	defaultFileRecorderSize = 10000
 	defaultRecorderNum      = 100000
 	defaultRecorderManager  RecorderManager
+	defaultEtcdRecorderSize = 10000
 	defaultEtcdPrefix       = "/mysh/"
 )
 
@@ -111,12 +113,10 @@ type PersistentRecorder interface {
 
 func NewFileRecorder(capacity int, f string) PersistentRecorder {
 	return &persistentRecorder{
-		inited: false,
-		r:      NewRecorder(capacity),
-		f:      defaultFileStorageDir + f,
-		storageFunc: func(f string, data []byte) error {
-			return ioutil.WriteFile(f, data, 0644)
-		},
+		inited:      false,
+		r:           NewRecorder(capacity),
+		f:           defaultFileStorageDir + f,
+		storageFunc: func(f string, data []byte) error { return ioutil.WriteFile(f, data, 0644) },
 		tryInitFunc: func(f string) error {
 
 			if _, err := os.Stat(f); os.IsNotExist(err) {
@@ -129,35 +129,18 @@ func NewFileRecorder(capacity int, f string) PersistentRecorder {
 			}
 			return nil
 		},
-		loadFunc: func(f string) ([]byte, error) {
-			return ioutil.ReadFile(f)
-		},
+		loadFunc: func(f string) ([]byte, error) { return ioutil.ReadFile(f) },
 	}
 }
 
 func NewEtcdRecorder(capacity int, f string) PersistentRecorder {
 	return &persistentRecorder{
-		inited: false,
-		r:      NewRecorder(capacity),
-		f:      defaultEtcdPrefix + f,
-		storageFunc: func(f string, data []byte) error {
-			return ioutil.WriteFile(f, data, 0644)
-		},
-		tryInitFunc: func(f string) error {
-
-			if _, err := os.Stat(f); os.IsNotExist(err) {
-
-				f, err := os.Create(f)
-				if err == nil {
-					defer f.Close()
-				}
-				return err
-			}
-			return nil
-		},
-		loadFunc: func(f string) ([]byte, error) {
-			return ioutil.ReadFile(f)
-		},
+		inited:      false,
+		r:           NewRecorder(capacity),
+		f:           defaultEtcdPrefix + f,
+		storageFunc: func(f string, data []byte) error { return etcd.PutKV(f, string(data)) },
+		tryInitFunc: func(f string) error { return nil },
+		loadFunc:    func(f string) ([]byte, error) { return etcd.GetKV(f) },
 	}
 
 }
@@ -454,7 +437,8 @@ func (r *recorderManager) tryRun(id string) error {
 		return nil
 	}
 
-	recorder := NewFileRecorder(defaultFileRecorderSize, id)
+	recorder := NewEtcdRecorder(defaultEtcdRecorderSize, id)
+	//recorder := NewFileRecorder(defaultFileRecorderSize, id)
 	if recorder == nil {
 		return fmt.Errorf("create file recorder error, id:[%v]", id)
 	}
