@@ -134,6 +134,16 @@ func cleanLineTail() {
 	printCSI([]byte{'K'})
 }
 
+func checkForeGround(pid int) bool {
+	scriptContent := fmt.Sprintf("ps aux | awk '{if($2==%v)print}' | grep +", pid)
+	cmd := exec.Command("/bin/bash", "-c", scriptContent)
+	output, _ := cmd.CombinedOutput()
+	if len(output) == 0 {
+		return false
+	}
+	return true
+}
+
 func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 
 	//check network
@@ -319,6 +329,8 @@ func Run() error {
 	// Make sure to close the pty at the end.
 	defer func() { _ = ptmx.Close() }() // Best effort.
 
+	bashPid := c.Process.Pid
+
 	// Handle pty size.
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGWINCH)
@@ -355,7 +367,7 @@ func Run() error {
 			time.Sleep(1 * time.Millisecond)
 			b, err := stdinBuffer.ReadByte()
 			if err == nil {
-				if b == ctrl('r') {
+				if b == ctrl('r') && checkForeGround(bashPid) {
 
 					doSearch(stdinBuffer, bashinBuffer)
 					continue
