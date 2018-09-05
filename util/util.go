@@ -1,27 +1,31 @@
 package util
 
 import (
-	"context"
 	"github.com/1071496910/mysh/cons"
-	"github.com/1071496910/mysh/proto"
-	"google.golang.org/grpc"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 )
 
 func PullCert() error {
-	conn, err := grpc.Dial(cons.Domain+":"+strconv.Itoa(cons.CertPort), grpc.WithInsecure())
+	resp, err := http.DefaultClient.Get("https://" + cons.Domain + ":443/get_cert")
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
+	crtContent := []byte{}
+	_, err = resp.Body.Read(crtContent)
 
-	crtPuller := proto.NewCertServiceClient(conn)
-	crt, err := crtPuller.Cert(context.Background(), &proto.CertRequest{})
 	if err != nil {
 		return err
 	}
-	return OverWriteFile(cons.Crt, crt.Content)
+	f, err := os.Create(cons.Crt)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, resp.Body)
+	return err
 }
 
 func FileExist(f string) bool {
