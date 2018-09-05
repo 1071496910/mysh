@@ -12,6 +12,6 @@ func main() {
 	s := server.NewSearchServer(cons.Port)
 	cs := server.NewCertServer()
 	http.Handle("/get_cert", cs)
-	go http.ListenAndServeTLS(":443", cons.Crt, cons.Key, nil)
+	go http.ListenAndServe(":8081", nil)
 	log.Fatal(s.Run())
 }
