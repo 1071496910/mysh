@@ -2,9 +2,10 @@ syntax = "proto3";
 
 
 message UploadRequest {
-  string uid    = 1;
-  string record = 2;
-  string token  = 3;
+  string uid     = 1;
+  string record  = 2;
+  string token   = 3;
+  string cliAddr = 4;
 }
 
 message UploadResponse {
@@ -16,6 +17,7 @@ message SearchRequest {
   string uid          = 1;
   string searchString = 2;
   string token        = 3;
+  string cliAddr      = 4;
 }
 
 message SearchResponse {
@@ -26,6 +28,7 @@ message SearchResponse {
 message LoginRequest {
   string uid      = 1;
   string password = 2;
+  string cliAddr  = 3;
 }
 
 message LoginResponse {
@@ -35,6 +38,7 @@ message LoginResponse {
 
 message LogoutRequest {
   string uid      = 1;
+  string cliAddr  = 2;
 }
 
 message LogoutResponse {

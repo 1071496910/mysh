@@ -8,6 +8,7 @@ var (
 	Domain   = "www.myshell.top"
 	Port     = 8080
 	CertPort = 8081
+	DashPort = 8082
 	MysqlStr = "root:123456@tcp(localhost:3306)/mysh?autocommit=true"
 	//MysqlStr      = "root:123456@tcp(localhost:3306)/mysh?tls=skip-verify&autocommit=true"
 	MysqlTimeout  = 3 * time.Second
