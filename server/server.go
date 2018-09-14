@@ -1,19 +1,23 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"net"
+	"net/http"
+
 	"github.com/1071496910/mysh/auth"
 	"github.com/1071496910/mysh/cons"
+	"github.com/1071496910/mysh/lib/etcd"
 	"github.com/1071496910/mysh/proto"
 	"github.com/1071496910/mysh/recorder"
+
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
-	"log"
-	"net"
-	"net/http"
 )
 
 type SearchServer struct {
@@ -139,6 +143,72 @@ func (c *CertServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func NewCertServer() *CertServer {
 	return &CertServer{}
+}
+
+type DashServer struct {
+	port int
+}
+
+func NewDashServer(port int) *DashServer {
+	return &DashServer{
+		port: port,
+	}
+
+}
+
+func (ss *DashServer) Run() error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", ss.port))
+	if err != nil {
+		return fmt.Errorf("init network error: %v", err)
+	}
+
+	creds, err := credentials.NewServerTLSFromFile(cons.Crt, cons.Key)
+	if err != nil {
+		return fmt.Errorf("could not load TLS keys: %s", err)
+	}
+
+	s := grpc.NewServer(grpc.Creds(creds))
+	proto.RegisterDashServiceServer(s, ss)
+	reflection.Register(s)
+	if err := s.Serve(lis); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (d *DashServer) ClientUid(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
+	vbytes, err := etcd.GetKV(fmt.Sprintf("uid.%v", r.Req))
+	return &proto.CommonQueryResponse{
+		Resp: string(vbytes),
+	}, err
+}
+func (d *DashServer) UidState(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
+	vbytes, err := etcd.GetKV(fmt.Sprintf("state.%v", r.Req))
+	return &proto.CommonQueryResponse{
+		Resp: string(vbytes),
+	}, err
+}
+func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
+	vbytes, err := etcd.GetKV(fmt.Sprintf("endpoint.%v", r.Req))
+	return &proto.CommonQueryResponse{
+		Resp: string(vbytes),
+	}, err
+}
+func (d *DashServer) UidClients(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryListResponse, error) {
+	ss := []string{}
+	vbytes, err := etcd.GetKV(fmt.Sprintf("endpoint.%v", r.Req))
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(vbytes, ss)
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.CommonQueryListResponse{
+		Resp: ss,
+	}, nil
 }
 
 //type CertServer struct {

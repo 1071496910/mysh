@@ -58,5 +58,21 @@ service CertService {
   rpc Cert(CertRequest) returns (CertEntry);
 }
 
+message CommonQueryRequest {
+  string req = 1;
+}
 
+message CommonQueryResponse {
+  string resp = 1;
+}
 
+message CommonQueryListResponse {
+  repeated string resp = 1;
+}
+
+service DashService {
+  rpc ClientUid(CommonQueryRequest) returns (CommonQueryResponse);
+  rpc UidState(CommonQueryRequest)  returns (CommonQueryResponse);
+  rpc UidEndpoint(CommonQueryRequest) returns (CommonQueryResponse);
+  rpc UidClients(CommonQueryRequest) returns (CommonQueryListResponse);
+}
