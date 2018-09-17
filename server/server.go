@@ -205,18 +205,53 @@ type EndpointCliManager struct {
 	mtx    sync.Mutex
 }
 
+func newSearchServerCli(endpoint string) proto.SearchServiceClient {
+
+	conn, err := grpc.Dial(endpoint)
+	if err != nil {
+		panic(err)
+	}
+	return proto.NewSearchServiceClient(conn)
+}
+
+func (ecm *EndpointCliManager) ensureCliExists(endpoint string) {
+	if _, ok := ecm.cliMap[endpoint]; !ok {
+
+		ecm.mtx.Lock()
+		defer ecm.mtx.Unlock()
+		if _, ok = ecm.cliMap[endpoint]; !ok {
+			ecm.cliMap[endpoint] = newSearchServerCli(endpoint)
+		}
+	}
+}
+
 func (ecm *EndpointCliManager) Login(ctx context.Context, endpoint string, in *proto.LoginRequest, opts ...grpc.CallOption) (*proto.LoginResponse, error) {
-	return nil, nil
+	//1. 先判断客户端是否存在
+	//2. 获取或者创建客户端
+	//3. 通过客户端请求
+	ecm.ensureCliExists(endpoint)
+	cli := ecm.cliMap[endpoint]
+	return cli.Login(ctx, in, opts...)
 }
 
 func (ecm *EndpointCliManager) Logout(ctx context.Context, endpoint string, in *proto.LogoutRequest, opts ...grpc.CallOption) (*proto.LogoutResponse, error) {
-	return nil, nil
+	ecm.ensureCliExists(endpoint)
+	cli := ecm.cliMap[endpoint]
+	return cli.Logout(ctx, in, opts...)
+
 }
 func (ecm *EndpointCliManager) Search(ctx context.Context, endpoint string, in *proto.SearchRequest, opts ...grpc.CallOption) (*proto.SearchResponse, error) {
-	return nil, nil
+
+	ecm.ensureCliExists(endpoint)
+	cli := ecm.cliMap[endpoint]
+	return cli.Search(ctx, in, opts...)
+
 }
 func (ecm *EndpointCliManager) Upload(ctx context.Context, endpoint string, in *proto.UploadRequest, opts ...grpc.CallOption) (*proto.UploadResponse, error) {
-	return nil, nil
+	ecm.ensureCliExists(endpoint)
+	cli := ecm.cliMap[endpoint]
+	return cli.Upload(ctx, in, opts...)
+
 }
 
 type ProxyServer struct {
