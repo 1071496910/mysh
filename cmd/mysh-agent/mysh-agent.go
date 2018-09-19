@@ -6,18 +6,27 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	"github.com/1071496910/mysh/cons"
 )
 
 var (
-	logDir = "/var/log/mysh/"
+	logDir string = "/var/log/mysh/"
 	l      *log.Logger
 )
 
 func init() {
-	if err := os.MkdirAll(logDir, 0644); err != nil {
+	u, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	logDir = filepath.Join(u.HomeDir, "mysh/agent")
+}
+
+func init() {
+	if err := os.MkdirAll(logDir, 0755); err != nil {
 		panic(err)
 	}
 	logFile, err := os.OpenFile(filepath.Join(logDir, "mysh-agent.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)

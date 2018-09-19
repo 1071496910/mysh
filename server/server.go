@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/1071496910/mysh/auth"
@@ -38,12 +39,7 @@ func (ss *SearchServer) Run() error {
 		return fmt.Errorf("init network error: %v", err)
 	}
 
-	creds, err := credentials.NewServerTLSFromFile(cons.Crt, cons.Key)
-	if err != nil {
-		return fmt.Errorf("could not load TLS keys: %s", err)
-	}
-
-	s := grpc.NewServer(grpc.Creds(creds))
+	s := grpc.NewServer()
 	proto.RegisterSearchServiceServer(s, ss)
 	reflection.Register(s)
 	if err := s.Serve(lis); err != nil {
@@ -53,13 +49,12 @@ func (ss *SearchServer) Run() error {
 }
 
 func (ss *SearchServer) Search(ctx context.Context, req *proto.SearchRequest) (*proto.SearchResponse, error) {
-	if p, ok := peer.FromContext(ctx); ok {
-		if !auth.CheckLoginState(req.Uid, req.Token, p.Addr.String()) {
-			return &proto.SearchResponse{
-				Response:     nil,
-				ResponseCode: 403,
-			}, nil
-		}
+
+	if !auth.CheckLoginState(req.Uid, req.Token, req.CliAddr) {
+		return &proto.SearchResponse{
+			Response:     nil,
+			ResponseCode: 403,
+		}, nil
 	}
 
 	return &proto.SearchResponse{
@@ -95,6 +90,7 @@ func (ss *SearchServer) Login(ctx context.Context, req *proto.LoginRequest) (*pr
 	resp := &proto.LoginResponse{
 		ResponseCode: 403,
 	}
+	fmt.Println(req.Uid, req.Password, req.CliAddr)
 	if token, ok := auth.Login(req.Uid, req.Password, req.CliAddr); ok {
 		resp.ResponseCode = 200
 		resp.Token = token
@@ -178,7 +174,7 @@ func (d *DashServer) UidState(ctx context.Context, r *proto.CommonQueryRequest) 
 func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
 	//vbytes, err := etcd.GetKV(fmt.Sprintf("endpoint.%v", r.Req))
 	return &proto.CommonQueryResponse{
-		Resp: "127.0.0.1:8082",
+		Resp: "127.0.0.1:8083",
 		//Resp: string(vbytes),
 	}, nil
 	//}, err
@@ -261,8 +257,22 @@ type ProxyServer struct {
 }
 
 func NewProxyServer(port int) *ProxyServer {
+	conn, err := grpc.Dial("www.myshell.top:"+strconv.Itoa(cons.DashPort), grpc.WithInsecure())
+	if err != nil {
+		panic(err)
+	}
+	endpointCliManger := &EndpointCliManager{
+		cliMap: make(map[string]proto.SearchServiceClient),
+	}
+	conn2, err := grpc.Dial("127.0.0.1:8083", grpc.WithInsecure())
+	if err != nil {
+		panic(err)
+	}
+	endpointCliManger.cliMap["127.0.0.1:8083"] = proto.NewSearchServiceClient(conn2)
 	return &ProxyServer{
-		port: port,
+		port:               port,
+		dashCli:            proto.NewDashServiceClient(conn),
+		endpointCliManager: endpointCliManger,
 	}
 
 }
@@ -300,7 +310,10 @@ func (ps *ProxyServer) Search(ctx context.Context, req *proto.SearchRequest) (*p
 
 	if p, ok := peer.FromContext(ctx); ok {
 		req.CliAddr = p.Addr.String()
+		fmt.Println("DEBUG", req.GetCliAddr(), req.GetToken(), req.GetSearchString(), req.GetUid())
 		sresp, err := ps.endpointCliManager.Search(context.Background(), endpoint, req)
+		fmt.Println("DEBUG", sresp.GetResponse(), sresp.GetResponseCode())
+
 		if err != nil {
 			return nil, err
 		}

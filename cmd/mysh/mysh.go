@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -44,7 +45,7 @@ var (
 
 	recorder proto.SearchServiceClient
 
-	logDir = "/var/log/mysh/"
+	logDir string
 
 	clientToken = ""
 	loginer     func() string
@@ -55,8 +56,12 @@ var (
 )
 
 func init() {
-
-	if err := os.MkdirAll(logDir, 0644); err != nil {
+	usr, err := user.Current()
+	if err != nil {
+		log.Fatal(err)
+	}
+	logDir = usr.HomeDir + "/mysh/log"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
 		panic(err)
 	}
 	logFile, err := os.OpenFile(filepath.Join(logDir, "mysh.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
@@ -72,7 +77,7 @@ func init() {
 		panic(err)
 	}
 	// Create the client TLS credentials
-	creds, err := credentials.NewClientTLSFromFile(cons.Crt, "")
+	creds, err := credentials.NewClientTLSFromFile(cons.UserCrt, "")
 	if err != nil {
 		panic(err)
 	}

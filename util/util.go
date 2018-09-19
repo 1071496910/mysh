@@ -20,12 +20,12 @@ func PullCert() error {
 	if err != nil {
 		return err
 	}
-	baseDir := filepath.Dir(cons.Crt)
-	if err := os.MkdirAll(baseDir, 0644); err != nil {
+	baseDir := filepath.Dir(cons.UserCrt)
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return err
 	}
 
-	f, err := os.Create(cons.Crt)
+	f, err := os.Create(cons.UserCrt)
 	if err != nil {
 		return err
 	}
