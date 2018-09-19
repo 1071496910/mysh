@@ -1,1 +1,8 @@
-a.out
+
+cmd/mysh-agent/mysh-agent
+cmd/mysh-server/mysh-server
+cmd/mysh/mysh
+cmd/mysh-cert-server/mysh-cert-server
+cmd/mysh-dash/mysh-dash
+cmd/mysh-proxy/mysh-proxy
+.idea
