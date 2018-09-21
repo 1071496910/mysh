@@ -6,45 +6,71 @@ import (
 	"io/ioutil"
 	"log"
 	"strconv"
+	"sync"
 
 	"github.com/1071496910/mysh/cons"
 	"github.com/1071496910/mysh/db"
 )
 
 var (
-	loginCache     = make(map[string]string)
+	loginCache     = make(map[string]map[string]string)
 	passwordGetter = db.MakePasswordGetter()
+	loginCacheMtx  sync.Mutex
 )
 
 func CheckLoginState(uid string, token string, extra ...string) bool {
-	key := uid
+
+	loginInfo := ""
 	for _, e := range extra {
-		key = key + e
+		loginInfo = loginInfo + e
 	}
 
-	if t, ok := loginCache[key]; ok && t == token {
-		return true
+	loginCacheMtx.Lock()
+	defer loginCacheMtx.Unlock()
+
+	if entry, ok := loginCache[uid]; ok {
+
+		if t, eok := entry[loginInfo]; eok && t == token {
+			return true
+		}
 	}
 	return false
 }
 
 func RemoveTokenCache(uid string, extra ...string) error {
-	key := uid
+	loginInfo := ""
 	for _, e := range extra {
-		key = key + e
+		loginInfo = loginInfo + e
 	}
-	delete(loginCache, key)
+	loginCacheMtx.Lock()
+	defer loginCacheMtx.Unlock()
+	if loginInfo == "" {
+		delete(loginCache, uid)
+	} else {
+		if entry, ok := loginCache[uid]; ok {
+			delete(entry, loginInfo)
+		}
+	}
 	return nil
 
 }
 
 func UpdateTokenCache(uid string, token string, extra ...string) error {
-	key := uid
+
+	loginInfo := ""
 	for _, e := range extra {
-		key = key + e
+		loginInfo = loginInfo + e
 	}
 
-	loginCache[key] = token
+	loginCacheMtx.Lock()
+	defer loginCacheMtx.Unlock()
+
+	if loginInfo != "" {
+		if _, ok := loginCache[uid]; !ok {
+			loginCache[uid] = make(map[string]string)
+		}
+		loginCache[uid][loginInfo] = token
+	}
 
 	return nil
 

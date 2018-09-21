@@ -52,6 +52,27 @@ service SearchService {
   rpc Logout(LogoutRequest) returns (LogoutResponse);
 }
 
+message PauseRequest {
+  string uid = 1;
+}
+message PauseResponse {
+  int32 responseCode = 1;
+}
+
+service ProxyController {
+  rpc Pause(PauseRequest) returns (PauseResponse);
+}
+
+message UidLogoutRequest {
+  string uid = 1;
+}
+message UidLogoutResponse {
+  int32 responseCode = 1;
+}
+
+service ServerController {
+  rpc UidLogout(UidLogoutRequest) returns (UidLogoutResponse);
+}
 
 message CertRequest {}
 message CertEntry {

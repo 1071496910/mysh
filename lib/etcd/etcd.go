@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/coreos/etcd/clientv3"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,10 @@ import (
 var (
 	cli  *clientv3.Client
 	once sync.Once
+)
+
+var (
+	ETCD_ERROR_EMPTY_VALUE = errors.New("Empty value")
 )
 
 func Init() {
@@ -53,7 +58,7 @@ func GetKV(k string) ([]byte, error) {
 		return kv.Value, nil
 	}
 
-	return nil, errors.New("Empty value")
+	return nil, ETCD_ERROR_EMPTY_VALUE
 }
 
 var lockRecord map[string]clientv3.LeaseID = map[string]clientv3.LeaseID{}
@@ -119,4 +124,40 @@ func UnLock(k string) error {
 	}
 
 	return fmt.Errorf("%v is already unlocked", k)
+}
+
+func Register(dir string, k string) error {
+	once.Do(Init)
+	leaseResp, err := cli.Grant(context.Background(), int64(cons.LeaseTTL))
+	if err != nil {
+		return err
+	}
+	cli.Put(context.Background(), filepath.Join(dir, k), fmt.Sprint(leaseResp.ID), clientv3.WithLease(leaseResp.ID))
+	keepChan, err := cli.KeepAlive(context.Background(), leaseResp.ID)
+
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for v := range keepChan {
+			fmt.Println(v)
+		}
+	}()
+	return nil
+}
+
+func ListKeyByPrefix(prefix string) ([]string, error) {
+	once.Do(Init)
+
+	resp, err := cli.Get(context.Background(), prefix, clientv3.WithPrefix())
+	if err != nil {
+		return nil, err
+	}
+
+	ret := []string{}
+	for _, kv := range resp.Kvs {
+		ret = append(ret, string(kv.Key))
+	}
+	return ret, nil
 }

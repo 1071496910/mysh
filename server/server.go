@@ -2,12 +2,16 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/1071496910/mysh/auth"
 	"github.com/1071496910/mysh/cons"
@@ -21,6 +25,47 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 )
+
+//UidLogout(context.Context, *UidLogoutRequest) (*UidLogoutResponse, error)
+
+func RunSearchService(port int) error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", port))
+	if err != nil {
+		return fmt.Errorf("init network error: %v", err)
+	}
+
+	s := grpc.NewServer()
+	proto.RegisterSearchServiceServer(s, NewSearchServer(port))
+	proto.RegisterServerControllerServer(s, NewSearchController(port))
+	reflection.Register(s)
+	if err := etcd.Register(cons.ServerRegistryPrefix, lis.Addr().String()); err != nil {
+		return err
+	}
+	if err := s.Serve(lis); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+type SearchController struct {
+	port int
+}
+
+func NewSearchController(port int) *SearchController {
+	return &SearchController{
+		port: port,
+	}
+}
+
+func (sc *SearchController) UidLogout(ctx context.Context, req *proto.UidLogoutRequest) (*proto.UidLogoutResponse, error) {
+	err := auth.RemoveTokenCache(req.Uid)
+	if err != nil {
+		return nil, err
+	}
+	return &proto.UidLogoutResponse{ResponseCode: 200}, nil
+}
 
 type SearchServer struct {
 	port int
@@ -42,9 +87,13 @@ func (ss *SearchServer) Run() error {
 	s := grpc.NewServer()
 	proto.RegisterSearchServiceServer(s, ss)
 	reflection.Register(s)
+	if err := etcd.Register(cons.ServerRegistryPrefix, lis.Addr().String()); err != nil {
+		return err
+	}
 	if err := s.Serve(lis); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -171,14 +220,43 @@ func (d *DashServer) UidState(ctx context.Context, r *proto.CommonQueryRequest) 
 		Resp: string(vbytes),
 	}, err
 }
-func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
-	//vbytes, err := etcd.GetKV(fmt.Sprintf("endpoint.%v", r.Req))
-	return &proto.CommonQueryResponse{
-		Resp: "127.0.0.1:8083",
-		//Resp: string(vbytes),
-	}, nil
-	//}, err
+
+func (d *DashServer) allocEndpoint(uid string) (string, error) {
+	if endpoints, err := etcd.ListKeyByPrefix(cons.ServerRegistryPrefix); err != nil {
+		return "", err
+	} else {
+		if len(endpoints) == 0 {
+			return "", errors.New("no valid endpoints")
+		}
+		endpoint := endpoints[0]
+		if err := etcd.PutKV(filepath.Join(cons.DashDataPrefix, "endpoints", uid), endpoint); err != nil {
+			return "", err
+		}
+		return endpoint, nil
+	}
+
 }
+
+func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
+	//vbytes, err := etcd.GetKV(fmt.Sprintf("endpoint/%v", r.Req))
+	vbytes, err := etcd.GetKV(filepath.Join(cons.DashDataPrefix, "endpoints/", r.Req))
+	if err != nil {
+		if err == etcd.ETCD_ERROR_EMPTY_VALUE {
+			//alloc endpoint
+			if endpoint, err := d.allocEndpoint(r.Req); err != nil {
+				return nil, err
+			} else {
+				return &proto.CommonQueryResponse{Resp: endpoint}, nil
+			}
+		}
+		return nil, err
+	}
+
+	return &proto.CommonQueryResponse{
+		Resp: string(vbytes),
+	}, nil
+}
+
 func (d *DashServer) UidClients(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryListResponse, error) {
 	ss := []string{}
 	vbytes, err := etcd.GetKV(fmt.Sprintf("endpoint.%v", r.Req))
@@ -250,6 +328,85 @@ func (ecm *EndpointCliManager) Upload(ctx context.Context, endpoint string, in *
 
 }
 
+var (
+	proxyReqCount        int32
+	proxyPauseMap        = make(map[string]bool)
+	proxyMtx             sync.Mutex
+	uidEndpointsCacheMtx sync.Mutex
+	uidEndpointsCache    = make(map[string]string)
+)
+
+func uidSuspensive(uid string) bool {
+	proxyMtx.Lock()
+	defer proxyMtx.Unlock()
+	if pause, ok := proxyPauseMap[uid]; !ok || !pause {
+		return false
+	}
+	return true
+}
+
+func waitUid(uid string) {
+	for uidSuspensive(uid) {
+		time.Sleep(cons.WaitUidInterval)
+	}
+}
+
+func uidSuspend(uid string) {
+	proxyMtx.Lock()
+	defer proxyMtx.Unlock()
+	proxyPauseMap[uid] = true
+}
+
+func uidResume(uid string) {
+	proxyMtx.Lock()
+	defer proxyMtx.Unlock()
+
+	delete(proxyPauseMap, uid)
+}
+
+type ProxyController struct {
+	port int
+}
+
+func NewProxyController(port int) *ProxyController {
+	return &ProxyController{
+		port: port,
+	}
+}
+
+func RunProxyService(port int) error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", port))
+	if err != nil {
+		return fmt.Errorf("init network error: %v", err)
+	}
+
+	s := grpc.NewServer()
+	proto.RegisterProxyControllerServer(s, NewProxyController(port))
+	proto.RegisterSearchServiceServer(s, NewProxyServer(port))
+	reflection.Register(s)
+	if err := etcd.Register(cons.ServerRegistryPrefix, lis.Addr().String()); err != nil {
+		return err
+	}
+	if err := s.Serve(lis); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (pc *ProxyController) Pause(ctx context.Context, req *proto.PauseRequest) (*proto.PauseResponse, error) {
+	uidSuspend(req.Uid)
+	for proxyReqCount != 0 {
+		time.Sleep(time.Millisecond * 10)
+	}
+
+	uidEndpointsCacheMtx.Lock()
+	defer uidEndpointsCacheMtx.Unlock()
+	delete(uidEndpointsCache, req.Uid)
+
+	return &proto.PauseResponse{ResponseCode: 200}, nil
+}
+
 type ProxyServer struct {
 	port               int
 	dashCli            proto.DashServiceClient
@@ -269,6 +426,7 @@ func NewProxyServer(port int) *ProxyServer {
 		panic(err)
 	}
 	endpointCliManger.cliMap["127.0.0.1:8083"] = proto.NewSearchServiceClient(conn2)
+
 	return &ProxyServer{
 		port:               port,
 		dashCli:            proto.NewDashServiceClient(conn),
@@ -291,22 +449,129 @@ func (ps *ProxyServer) Run() error {
 	s := grpc.NewServer(grpc.Creds(creds))
 	proto.RegisterSearchServiceServer(s, ps)
 	reflection.Register(s)
+
+	if err := etcd.Register(cons.ProxyRegistryPrefix, lis.Addr().String()); err != nil {
+		return err
+	}
 	if err := s.Serve(lis); err != nil {
 		return err
 	}
+
 	return nil
 }
 
+func (ps *ProxyServer) uidEndpoint(uid string) (string, error) {
+	uidEndpointsCacheMtx.Lock()
+	defer uidEndpointsCacheMtx.Unlock()
+	if ep, ok := uidEndpointsCache[uid]; ok {
+		return ep, nil
+	} else {
+
+		resp, err := ps.dashCli.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
+			Req: uid,
+		})
+		if err != nil {
+			return "", err
+		}
+		uidEndpointsCache[uid] = resp.Resp
+		return resp.Resp, nil
+	}
+}
+
+type dealFunction func(p *peer.Peer, endpoint string)
+
+func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFunction) error {
+	waitUid(uid)
+	atomic.AddInt32(&proxyReqCount, 1)
+	defer atomic.AddInt32(&proxyReqCount, -1)
+
+	endpoint, err := ps.uidEndpoint(uid)
+	if err != nil {
+		return err
+	}
+
+	if p, ok := peer.FromContext(ctx); ok {
+		dealFunc(p, endpoint)
+		return nil
+	}
+
+	return fmt.Errorf("Can't get ip from peer")
+}
+
 func (ps *ProxyServer) Search(ctx context.Context, req *proto.SearchRequest) (*proto.SearchResponse, error) {
+
+	var resp *proto.SearchResponse
+	var err error
+	if e := ps.doProxy(ctx, req.Uid, func(p *peer.Peer, endpoint string) {
+
+		req.CliAddr = p.Addr.String()
+		fmt.Println("DEBUG", req.GetCliAddr(), req.GetToken(), req.GetSearchString(), req.GetUid())
+		resp, err = ps.endpointCliManager.Search(context.Background(), endpoint, req)
+		fmt.Println("DEBUG", resp.GetResponse(), resp.GetResponseCode())
+
+	}); e != nil {
+		return nil, e
+	}
+
+	return resp, err
+}
+
+func (ps *ProxyServer) Upload(ctx context.Context, req *proto.UploadRequest) (*proto.UploadResponse, error) {
+	var resp *proto.UploadResponse
+	var err error
+
+	if e := ps.doProxy(ctx, req.Uid, func(p *peer.Peer, endpoint string) {
+		req.CliAddr = p.Addr.String()
+		resp, err = ps.endpointCliManager.Upload(context.Background(), endpoint, req)
+	}); e != nil {
+		return nil, e
+	}
+
+	return resp, nil
+}
+
+func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto.LoginResponse, error) {
+	var resp *proto.LoginResponse
+	var err error
+
+	if e := ps.doProxy(ctx, req.Uid, func(p *peer.Peer, endpoint string) {
+		req.CliAddr = p.Addr.String()
+		resp, err = ps.endpointCliManager.Login(context.Background(), endpoint, req)
+	}); e != nil {
+		return nil, e
+	}
+
+	return resp, nil
+
+}
+
+func (ps *ProxyServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*proto.LogoutResponse, error) {
+	var resp *proto.LogoutResponse
+	var err error
+
+	if e := ps.doProxy(ctx, req.Uid, func(p *peer.Peer, endpoint string) {
+		req.CliAddr = p.Addr.String()
+		resp, err = ps.endpointCliManager.Logout(context.Background(), endpoint, req)
+	}); e != nil {
+		return nil, e
+	}
+
+	return resp, nil
+
+}
+
+//old proxy server impl
+/*func (ps *ProxyServer) Search(ctx context.Context, req *proto.SearchRequest) (*proto.SearchResponse, error) {
 	//1. 获取uid对应的endpoint
 	//2. 获取client的地址加入请求转给endpoint
-	resp, err := ps.dashCli.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
-		Req: req.Uid,
-	})
+	waitUid(req.Uid)
+	atomic.AddInt32(&proxyReqCount, 1)
+	defer atomic.AddInt32(&proxyReqCount, -1)
+
+	endpoint, err := ps.uidEndpoint(req.Uid)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := resp.Resp
 
 	if p, ok := peer.FromContext(ctx); ok {
 		req.CliAddr = p.Addr.String()
@@ -323,16 +588,17 @@ func (ps *ProxyServer) Search(ctx context.Context, req *proto.SearchRequest) (*p
 	}
 
 	return nil, fmt.Errorf("Can't get ip from peer")
-}
+}*/
 
-func (ps *ProxyServer) Upload(ctx context.Context, req *proto.UploadRequest) (*proto.UploadResponse, error) {
-	resp, err := ps.dashCli.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
-		Req: req.Uid,
-	})
+/*func (ps *ProxyServer) Upload(ctx context.Context, req *proto.UploadRequest) (*proto.UploadResponse, error) {
+	waitUid(req.Uid)
+	atomic.AddInt32(&proxyReqCount, 1)
+	defer atomic.AddInt32(&proxyReqCount, -1)
+
+	endpoint, err := ps.uidEndpoint(req.Uid)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := resp.Resp
 
 	if p, ok := peer.FromContext(ctx); ok {
 		req.CliAddr = p.Addr.String()
@@ -345,16 +611,17 @@ func (ps *ProxyServer) Upload(ctx context.Context, req *proto.UploadRequest) (*p
 
 	}
 	return nil, fmt.Errorf("Can't get ip from peer")
-}
+}*/
 
-func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto.LoginResponse, error) {
-	resp, err := ps.dashCli.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
-		Req: req.Uid,
-	})
+/*func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto.LoginResponse, error) {
+	waitUid(req.Uid)
+	atomic.AddInt32(&proxyReqCount, 1)
+	defer atomic.AddInt32(&proxyReqCount, -1)
+
+	endpoint, err := ps.uidEndpoint(req.Uid)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := resp.Resp
 
 	if p, ok := peer.FromContext(ctx); ok {
 		req.CliAddr = p.Addr.String()
@@ -368,16 +635,17 @@ func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*pro
 	}
 	return nil, fmt.Errorf("Can't get ip from peer")
 
-}
+}*/
 
-func (ps *ProxyServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*proto.LogoutResponse, error) {
-	resp, err := ps.dashCli.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
-		Req: req.Uid,
-	})
+/*func (ps *ProxyServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*proto.LogoutResponse, error) {
+	waitUid(req.Uid)
+	atomic.AddInt32(&proxyReqCount, 1)
+	defer atomic.AddInt32(&proxyReqCount, -1)
+
+	endpoint, err := ps.uidEndpoint(req.Uid)
 	if err != nil {
 		return nil, err
 	}
-	endpoint := resp.Resp
 
 	if p, ok := peer.FromContext(ctx); ok {
 		req.CliAddr = p.Addr.String()
@@ -390,7 +658,8 @@ func (ps *ProxyServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*p
 
 	}
 	return nil, fmt.Errorf("Can't get ip from peer")
-}
+}*/
+//old proxy server impl end
 
 //type CertServer struct {
 //	port int

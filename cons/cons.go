@@ -24,7 +24,13 @@ var (
 	CertPort     = 8081
 	DashPort     = 8082
 	EndpointPort = 8083
-	MysqlStr     = "root:123456@tcp(localhost:3306)/mysh?autocommit=true"
+
+	MysqlStr             = "root:123456@tcp(localhost:3306)/mysh?autocommit=true"
+	LeaseTTL             = 10
+	ProxyRegistryPrefix  = "/mysh/proxy/"
+	ServerRegistryPrefix = "/mysh/server/"
+	DashDataPrefix       = "/mysh/dash/"
+	WaitUidInterval      = time.Millisecond * 10
 	//MysqlStr      = "root:123456@tcp(localhost:3306)/mysh?tls=skip-verify&autocommit=true"
 	MysqlTimeout  = 3 * time.Second
 	UinfoTable    = "mysh_uinfo"
