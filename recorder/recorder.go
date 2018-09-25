@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -19,7 +20,7 @@ var (
 	defaultRecorderNum      = 100000
 	defaultRecorderManager  RecorderManager
 	defaultEtcdRecorderSize = 10000
-	defaultEtcdPrefix       = "/mysh/"
+	defaultEtcdPrefix       = "/mysh/data/"
 )
 
 func init() {
@@ -137,7 +138,7 @@ func NewEtcdRecorder(capacity int, f string) PersistentRecorder {
 	return &persistentRecorder{
 		inited:      false,
 		r:           NewRecorder(capacity),
-		f:           defaultEtcdPrefix + f,
+		f:           filepath.Join(defaultEtcdPrefix, f),
 		storageFunc: func(f string, data []byte) error { return etcd.PutKV(f, string(data)) },
 		tryInitFunc: func(f string) error { return nil },
 		loadFunc:    func(f string) ([]byte, error) { return etcd.GetKV(f) },

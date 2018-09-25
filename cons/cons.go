@@ -30,6 +30,9 @@ var (
 	ProxyRegistryPrefix  = "/mysh/proxy/"
 	ServerRegistryPrefix = "/mysh/server/"
 	DashDataPrefix       = "/mysh/dash/"
+	DashEpQueryFormat    = "/mysh/dash/uid/%v/endpoint"
+	DashUidsQueryFormat  = "/mysh/dash/endpoint/%v/uids/%v"
+	DashEpLock           = "/mysh/dash/eplock"
 	WaitUidInterval      = time.Millisecond * 10
 	//MysqlStr      = "root:123456@tcp(localhost:3306)/mysh?tls=skip-verify&autocommit=true"
 	MysqlTimeout  = 3 * time.Second

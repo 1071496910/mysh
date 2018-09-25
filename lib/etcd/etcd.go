@@ -1,3 +1,4 @@
+//package main
 package etcd
 
 import (
@@ -140,8 +141,9 @@ func Register(dir string, k string) error {
 	}
 
 	go func() {
-		for v := range keepChan {
-			fmt.Println(v)
+		//for v := range keepChan {
+		for _ = range keepChan {
+			//fmt.Println(v)
 		}
 	}()
 	return nil
@@ -160,4 +162,39 @@ func ListKeyByPrefix(prefix string) ([]string, error) {
 		ret = append(ret, string(kv.Key))
 	}
 	return ret, nil
+}
+
+const (
+	OP_PUT = iota
+	OP_DEL
+)
+
+type KV struct {
+	Op    int
+	Key   string
+	Value string
+}
+
+func AtomicMultiKVOp(lockId string, kvs ...*KV) error {
+	once.Do(Init)
+
+	Lock(lockId)
+	defer UnLock(lockId)
+
+	ops := []clientv3.Op{}
+	for _, kv := range kvs {
+		switch kv.Op {
+		case OP_PUT:
+			ops = append(ops, clientv3.OpPut(kv.Key, kv.Value))
+		case OP_DEL:
+			ops = append(ops, clientv3.OpDelete(kv.Key))
+		}
+	}
+	txn := cli.Txn(context.Background())
+	_, err := txn.Then(ops...).Commit()
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	return nil
 }

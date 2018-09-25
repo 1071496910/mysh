@@ -210,6 +210,7 @@ func (ss *DashServer) Run() error {
 
 func (d *DashServer) ClientUid(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
 	vbytes, err := etcd.GetKV(fmt.Sprintf("uid.%v", r.Req))
+
 	return &proto.CommonQueryResponse{
 		Resp: string(vbytes),
 	}, err
@@ -221,15 +222,64 @@ func (d *DashServer) UidState(ctx context.Context, r *proto.CommonQueryRequest) 
 	}, err
 }
 
-func (d *DashServer) allocEndpoint(uid string) (string, error) {
+func addEpInfo(uid string, endpoint string) error {
+
+	return etcd.AtomicMultiKVOp(cons.DashEpLock, &etcd.KV{
+		Op:    etcd.OP_PUT,
+		Key:   fmt.Sprintf(cons.DashEpQueryFormat, endpoint),
+		Value: uid,
+	}, &etcd.KV{
+		Op:    etcd.OP_PUT,
+		Key:   fmt.Sprintf(cons.DashUidsQueryFormat, endpoint, uid),
+		Value: "",
+	})
+}
+
+func delEpInfo(uid string, endpoint string) error {
+
+	return etcd.AtomicMultiKVOp(cons.DashEpLock, &etcd.KV{
+		Op:    etcd.OP_DEL,
+		Key:   fmt.Sprintf(cons.DashEpQueryFormat, endpoint),
+		Value: uid,
+	}, &etcd.KV{
+		Op:    etcd.OP_DEL,
+		Key:   fmt.Sprintf(cons.DashUidsQueryFormat, endpoint, uid),
+		Value: "",
+	})
+}
+
+func updateEpInfo(uid string, oldEndpoint string, newEndpoint string) error {
+
+	return etcd.AtomicMultiKVOp(cons.DashEpLock, &etcd.KV{
+		Op:    etcd.OP_PUT,
+		Key:   fmt.Sprintf(cons.DashEpQueryFormat, newEndpoint),
+		Value: uid,
+	}, &etcd.KV{
+		Op:    etcd.OP_DEL,
+		Key:   fmt.Sprintf(cons.DashUidsQueryFormat, oldEndpoint, uid),
+		Value: "",
+	}, &etcd.KV{
+		Op:    etcd.OP_PUT,
+		Key:   fmt.Sprintf(cons.DashUidsQueryFormat, newEndpoint, uid),
+		Value: "",
+	})
+}
+
+func allocEndpoint(uid string) (string, error) {
 	if endpoints, err := etcd.ListKeyByPrefix(cons.ServerRegistryPrefix); err != nil {
 		return "", err
 	} else {
 		if len(endpoints) == 0 {
 			return "", errors.New("no valid endpoints")
 		}
-		endpoint := endpoints[0]
-		if err := etcd.PutKV(filepath.Join(cons.DashDataPrefix, "endpoints", uid), endpoint); err != nil {
+		log.Println("DEBUG: get endpoints ", endpoints)
+		endpoint, err := filepath.Rel("/mysh/server/", endpoints[0])
+		if err != nil {
+			return "", err
+		}
+
+		//if err := etcd.PutKV(fmt.Sprintf(cons.DashEpQueryFormat, uid), endpoint); err != nil {
+		if err := addEpInfo(uid, endpoint); err != nil {
 			return "", err
 		}
 		return endpoint, nil
@@ -239,11 +289,12 @@ func (d *DashServer) allocEndpoint(uid string) (string, error) {
 
 func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
 	//vbytes, err := etcd.GetKV(fmt.Sprintf("endpoint/%v", r.Req))
-	vbytes, err := etcd.GetKV(filepath.Join(cons.DashDataPrefix, "endpoints/", r.Req))
+	//vbytes, err := etcd.GetKV(filepath.Join(cons.DashDataPrefix, "endpoints/", r.Req))
+	vbytes, err := etcd.GetKV(fmt.Sprintf(cons.DashEpQueryFormat, r.Req))
 	if err != nil {
 		if err == etcd.ETCD_ERROR_EMPTY_VALUE {
 			//alloc endpoint
-			if endpoint, err := d.allocEndpoint(r.Req); err != nil {
+			if endpoint, err := allocEndpoint(r.Req); err != nil {
 				return nil, err
 			} else {
 				return &proto.CommonQueryResponse{Resp: endpoint}, nil
@@ -281,7 +332,7 @@ type EndpointCliManager struct {
 
 func newSearchServerCli(endpoint string) proto.SearchServiceClient {
 
-	conn, err := grpc.Dial(endpoint)
+	conn, err := grpc.Dial(endpoint, grpc.WithInsecure())
 	if err != nil {
 		panic(err)
 	}
@@ -303,6 +354,7 @@ func (ecm *EndpointCliManager) Login(ctx context.Context, endpoint string, in *p
 	//1. 先判断客户端是否存在
 	//2. 获取或者创建客户端
 	//3. 通过客户端请求
+	log.Print("DEBUG: endpoint ", endpoint)
 	ecm.ensureCliExists(endpoint)
 	cli := ecm.cliMap[endpoint]
 	return cli.Login(ctx, in, opts...)
@@ -375,18 +427,29 @@ func NewProxyController(port int) *ProxyController {
 }
 
 func RunProxyService(port int) error {
+	log.Println("Running proxy server")
+
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", port))
 	if err != nil {
 		return fmt.Errorf("init network error: %v", err)
 	}
+	creds, err := credentials.NewServerTLSFromFile(cons.Crt, cons.Key)
+	if err != nil {
+		return fmt.Errorf("could not load TLS keys: %s", err)
+	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(grpc.Creds(creds))
+
+	//s := grpc.NewServer()
 	proto.RegisterProxyControllerServer(s, NewProxyController(port))
 	proto.RegisterSearchServiceServer(s, NewProxyServer(port))
+
+	log.Println("ProxyServer registry ok... ")
 	reflection.Register(s)
-	if err := etcd.Register(cons.ServerRegistryPrefix, lis.Addr().String()); err != nil {
+	if err := etcd.Register(cons.ProxyRegistryPrefix, lis.Addr().String()); err != nil {
 		return err
 	}
+	log.Println("Registry etcd ok ...")
 	if err := s.Serve(lis); err != nil {
 		return err
 	}
@@ -421,11 +484,11 @@ func NewProxyServer(port int) *ProxyServer {
 	endpointCliManger := &EndpointCliManager{
 		cliMap: make(map[string]proto.SearchServiceClient),
 	}
-	conn2, err := grpc.Dial("127.0.0.1:8083", grpc.WithInsecure())
-	if err != nil {
-		panic(err)
-	}
-	endpointCliManger.cliMap["127.0.0.1:8083"] = proto.NewSearchServiceClient(conn2)
+	//conn2, err := grpc.Dial("127.0.0.1:8083", grpc.WithInsecure())
+	//if err != nil {
+	//	panic(err)
+	//}
+	//endpointCliManger.cliMap["127.0.0.1:8083"] = proto.NewSearchServiceClient(conn2)
 
 	return &ProxyServer{
 		port:               port,
@@ -534,8 +597,11 @@ func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*pro
 	var resp *proto.LoginResponse
 	var err error
 
+	log.Println("DEBUG: login:", req.Uid, req.Password)
+
 	if e := ps.doProxy(ctx, req.Uid, func(p *peer.Peer, endpoint string) {
 		req.CliAddr = p.Addr.String()
+
 		resp, err = ps.endpointCliManager.Login(context.Background(), endpoint, req)
 	}); e != nil {
 		return nil, e
