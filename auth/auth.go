@@ -34,6 +34,7 @@ func CheckLoginState(uid string, token string, extra ...string) bool {
 			return true
 		}
 	}
+	log.Println("auth.go checklogin state invalid", uid, token, extra)
 	return false
 }
 
@@ -71,6 +72,7 @@ func UpdateTokenCache(uid string, token string, extra ...string) error {
 		}
 		loginCache[uid][loginInfo] = token
 	}
+	log.Println("auth.go update token cache:", loginCache)
 
 	return nil
 

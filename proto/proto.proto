@@ -54,6 +54,7 @@ service SearchService {
 
 message PauseRequest {
   string uid = 1;
+  int32  type = 2;
 }
 message PauseResponse {
   int32 responseCode = 1;

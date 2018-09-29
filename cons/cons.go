@@ -25,9 +25,13 @@ var (
 	DashPort     = 8082
 	EndpointPort = 8083
 
-	MysqlStr             = "root:123456@tcp(localhost:3306)/mysh?autocommit=true"
-	LeaseTTL             = 10
-	ProxyRegistryPrefix  = "/mysh/proxy/"
+	OP_PAUSE  int32 = 0
+	OP_RESUME int32 = 1
+
+	MysqlStr            = "root:123456@tcp(localhost:3306)/mysh?autocommit=true"
+	LeaseTTL            = 10
+	ProxyRegistryPrefix = "/mysh/proxy/"
+
 	ServerRegistryPrefix = "/mysh/server/"
 	DashDataPrefix       = "/mysh/dash/"
 	DashEpQueryFormat    = "/mysh/dash/uid/%v/endpoint"
@@ -41,4 +45,7 @@ var (
 	EnvMyshPidKey = "MYSH_PID"
 	EtcdEndpoints = "localhost:2379"
 	EtcdTimeout   = 3 * time.Second
+
+	ClientRetryTimes    = 3
+	ClientRetryInterval = 3 * time.Second
 )

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc/credentials"
 	"io"
 	"io/ioutil"
 	"log"
@@ -22,7 +23,6 @@ import (
 	"github.com/kr/pty"
 	"golang.org/x/crypto/ssh/terminal"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 
 	"github.com/1071496910/mysh/cons"
@@ -83,6 +83,7 @@ func init() {
 	}
 
 	conn, err := grpc.Dial(cons.Domain+":"+strconv.Itoa(cons.Port), grpc.WithTransportCredentials(creds))
+	/*conn, err := grpc.Dial(cons.Domain+":"+strconv.Itoa(cons.Port), grpc.WithInsecure())*/
 	if err != nil {
 		panic(err)
 	}
@@ -154,7 +155,8 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 	//check network
 	resp, err := recorder.Search(context.Background(), &proto.SearchRequest{
 		SearchString: "",
-		Uid:          "",
+		Uid:          client.UidCache,
+		Token:        clientToken,
 	})
 
 	//offline mode
@@ -303,16 +305,24 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 				//println("DEBUG: search buffer is ", string(searchBuffer))
 				if searchIndex > 0 {
 					//candidateCommands = recorder.Find(string(searchBuffer))
-					response, err := recorder.Search(context.Background(), &proto.SearchRequest{
-						Uid:          client.UidCache,
-						Token:        clientToken,
-						SearchString: string(searchBuffer),
+					util.Retry(cons.ClientRetryTimes, cons.ClientRetryInterval, func() error {
+						if resp, err := recorder.Search(context.Background(), &proto.SearchRequest{
+							Uid:          client.UidCache,
+							Token:        clientToken,
+							SearchString: string(searchBuffer),
+						}); err != nil {
+							log.Println(err)
+							return err
+						} else if resp.ResponseCode != 200 {
+							if resp.ResponseCode == 403 {
+								login()
+							}
+							return errors.New("auth invalid")
+						} else {
+							candidateCommands = resp.Response
+						}
+						return nil
 					})
-					if err != nil {
-						log.Println(err)
-					}
-					candidateCommands = response.Response
-
 				}
 				displaySearchStatus()
 
@@ -373,7 +383,6 @@ func Run() error {
 			b, err := stdinBuffer.ReadByte()
 			if err == nil {
 				if b == ctrl('r') && checkForeGround(bashPid) {
-
 					doSearch(stdinBuffer, bashinBuffer)
 					continue
 				}
@@ -410,7 +419,8 @@ func uploadProxyHandler(resp http.ResponseWriter, req *http.Request) {
 
 	rp, err := recorder.Search(context.Background(), &proto.SearchRequest{
 		SearchString: "",
-		Uid:          "",
+		Uid:          client.UidCache,
+		Token:        clientToken,
 	})
 
 	//offline mode
@@ -424,11 +434,22 @@ func uploadProxyHandler(resp http.ResponseWriter, req *http.Request) {
 		login()
 	}
 
-	recorder.Upload(context.Background(), &proto.UploadRequest{
-		Token:  clientToken,
-		Record: string(body),
-		Uid:    client.UidCache,
+	util.Retry(cons.ClientRetryTimes, cons.ClientRetryInterval, func() error {
+		if resp, err := recorder.Upload(context.Background(), &proto.UploadRequest{
+			Token:  clientToken,
+			Record: string(body),
+			Uid:    client.UidCache,
+		}); err != nil {
+			return err
+		} else if resp.ResponseCode != 200 {
+			if resp.ResponseCode == 403 {
+				login()
+			}
+			return errors.New("auth invalid")
+		}
+		return nil
 	})
+
 	lastCommand = string(body)
 
 }

@@ -28,10 +28,11 @@ func makeLoginFunc(client proto.SearchServiceClient, uidGetter, psGetter GetStri
 	return func() string {
 
 		needLogin := false
-
+		//log.Println("DEBUG: client.go check login ", uidGetter(), psGetter())
 		if psGetter() == "" || uidGetter() == "" {
 			needLogin = true
 		} else {
+			//log.Println("DEBUG: login with password again", uidGetter(), psGetter())
 			if resp, err := client.Login(context.Background(), &proto.LoginRequest{
 				Uid:      uidGetter(),
 				Password: psGetter(),
@@ -39,7 +40,6 @@ func makeLoginFunc(client proto.SearchServiceClient, uidGetter, psGetter GetStri
 				return resp.Token
 			}
 			needLogin = true
-
 		}
 
 		for needLogin {
@@ -69,7 +69,6 @@ func makeLoginFunc(client proto.SearchServiceClient, uidGetter, psGetter GetStri
 		}
 		return ""
 	}
-
 }
 
 func MakeVarLoginFunc(client proto.SearchServiceClient) func() string {

@@ -28,6 +28,15 @@ import (
 
 //UidLogout(context.Context, *UidLogoutRequest) (*UidLogoutResponse, error)
 
+var (
+	proxyReqCount        int32
+	proxyPauseMap        = make(map[string]bool)
+	proxyMtx             sync.Mutex
+	uidEndpointsCacheMtx sync.Mutex
+	uidEndpointsCache    = make(map[string]string)
+	E_SUSPENSIVE         = errors.New("Uid is suspensive")
+)
+
 func RunSearchService(port int) error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", port))
 	if err != nil {
@@ -39,6 +48,7 @@ func RunSearchService(port int) error {
 	proto.RegisterServerControllerServer(s, NewSearchController(port))
 	reflection.Register(s)
 	if err := etcd.Register(cons.ServerRegistryPrefix, lis.Addr().String()); err != nil {
+		log.Println("Registry searchService ok...")
 		return err
 	}
 	if err := s.Serve(lis); err != nil {
@@ -60,10 +70,16 @@ func NewSearchController(port int) *SearchController {
 }
 
 func (sc *SearchController) UidLogout(ctx context.Context, req *proto.UidLogoutRequest) (*proto.UidLogoutResponse, error) {
-	err := auth.RemoveTokenCache(req.Uid)
-	if err != nil {
+	log.Println("sc uidlogout", req)
+	if err := auth.RemoveTokenCache(req.Uid); err != nil {
 		return nil, err
 	}
+	log.Println("DEBUG after remove token cache")
+
+	if err := recorder.DefaultRecorderManager().Stop(req.Uid); err != nil {
+		return nil, err
+	}
+	log.Println("sc uidlogout finish", req)
 	return &proto.UidLogoutResponse{ResponseCode: 200}, nil
 }
 
@@ -99,26 +115,32 @@ func (ss *SearchServer) Run() error {
 
 func (ss *SearchServer) Search(ctx context.Context, req *proto.SearchRequest) (*proto.SearchResponse, error) {
 
-	if !auth.CheckLoginState(req.Uid, req.Token, req.CliAddr) {
-		return &proto.SearchResponse{
-			Response:     nil,
-			ResponseCode: 403,
-		}, nil
+	if req.Uid != "" && req.SearchString == "" {
+		log.Println("server.go ss search", req.Uid, req.CliAddr, req.Token)
+		if !auth.CheckLoginState(req.Uid, req.Token, req.CliAddr) {
+			log.Println("DEBUG in search auth check failure")
+			return &proto.SearchResponse{
+				Response:     nil,
+				ResponseCode: 403,
+			}, nil
+		}
 	}
 
 	return &proto.SearchResponse{
-		Response: recorder.DefaultRecorderManager().Find(req.Uid, req.SearchString),
+		Response:     recorder.DefaultRecorderManager().Find(req.Uid, req.SearchString),
+		ResponseCode: 200,
 	}, nil
 }
 
 func (ss *SearchServer) Upload(ctx context.Context, req *proto.UploadRequest) (*proto.UploadResponse, error) {
+
+	log.Println("server.go ss upload", req.Uid, req.CliAddr, req.Token, req.Record)
 	if !auth.CheckLoginState(req.Uid, req.Token, req.CliAddr) {
+		log.Println("DEBUG in upload auth check failure")
 		return &proto.UploadResponse{
 			ErrorMsg:     "Invalid token",
 			ResponseCode: 403,
 		}, nil
-	} else {
-		defer auth.RemoveTokenCache(req.Uid, req.CliAddr)
 	}
 
 	if err := recorder.DefaultRecorderManager().Add(req.Uid, req.Record); err != nil {
@@ -146,9 +168,10 @@ func (ss *SearchServer) Login(ctx context.Context, req *proto.LoginRequest) (*pr
 
 		auth.UpdateTokenCache(req.Uid, token, req.CliAddr)
 
+		log.Println("Login success:", req.Uid)
 		return resp, nil
-
 	}
+	log.Println("Login failt:", req.Uid)
 	return resp, fmt.Errorf("Incorrect username or password.")
 
 }
@@ -180,6 +203,84 @@ func (c *CertServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func NewCertServer() *CertServer {
 	return &CertServer{}
+}
+
+type DashController struct {
+	pcClientCache *PCCliManager
+	scClientCache *SCCliManager
+}
+
+func NewDashController() *DashController {
+	return &DashController{
+		pcClientCache: &PCCliManager{cliMap: make(map[string]proto.ProxyControllerClient)},
+		scClientCache: &SCCliManager{cliMap: make(map[string]proto.ServerControllerClient)},
+	}
+}
+
+func (dc *DashController) Migrate(uid string, oep string, nep string) error {
+	uidSuspend(uid)
+	defer uidResume(uid)
+	proxyNodes, err := etcd.ListKeyByPrefix(cons.ProxyRegistryPrefix)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	proxyEps := []string{}
+	for _, pn := range proxyNodes {
+		if ep, err := filepath.Rel(cons.ProxyRegistryPrefix, pn); err == nil {
+			proxyEps = append(proxyEps, ep)
+		} else {
+			log.Println(err)
+			return err
+		}
+	}
+
+	for _, pe := range proxyEps {
+		log.Println("DEBUG dash delete endpoint cache ", pe, uid)
+		_, err := dc.pcClientCache.Pause(context.Background(), pe, &proto.PauseRequest{Uid: uid, Type: cons.OP_PAUSE})
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		defer func() {
+			log.Println("resume", pe)
+			dc.pcClientCache.Pause(context.Background(), pe, &proto.PauseRequest{Uid: uid, Type: cons.OP_RESUME})
+		}()
+	}
+	log.Println("DEBUG after pause proxy")
+
+	if _, err := dc.scClientCache.UidLogout(context.Background(), oep, &proto.UidLogoutRequest{Uid: uid}); err != nil {
+		log.Println(err)
+		return err
+	}
+	log.Println("DEBUG after logout")
+	return updateEpInfo(uid, oep, nep)
+
+}
+
+func RunDashService(port int) error {
+	log.Println("Running dash server")
+
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", port))
+	if err != nil {
+		return fmt.Errorf("init network error: %v", err)
+	}
+
+	s := grpc.NewServer()
+
+	proto.RegisterDashServiceServer(s, NewDashServer(port))
+
+	log.Println("ProxyServer registry ok... ")
+	reflection.Register(s)
+	if err := etcd.Register(cons.ProxyRegistryPrefix, lis.Addr().String()); err != nil {
+		return err
+	}
+	log.Println("Registry etcd ok ...")
+	if err := s.Serve(lis); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type DashServer struct {
@@ -226,8 +327,8 @@ func addEpInfo(uid string, endpoint string) error {
 
 	return etcd.AtomicMultiKVOp(cons.DashEpLock, &etcd.KV{
 		Op:    etcd.OP_PUT,
-		Key:   fmt.Sprintf(cons.DashEpQueryFormat, endpoint),
-		Value: uid,
+		Key:   fmt.Sprintf(cons.DashEpQueryFormat, uid),
+		Value: endpoint,
 	}, &etcd.KV{
 		Op:    etcd.OP_PUT,
 		Key:   fmt.Sprintf(cons.DashUidsQueryFormat, endpoint, uid),
@@ -239,8 +340,8 @@ func delEpInfo(uid string, endpoint string) error {
 
 	return etcd.AtomicMultiKVOp(cons.DashEpLock, &etcd.KV{
 		Op:    etcd.OP_DEL,
-		Key:   fmt.Sprintf(cons.DashEpQueryFormat, endpoint),
-		Value: uid,
+		Key:   fmt.Sprintf(cons.DashEpQueryFormat, uid),
+		Value: endpoint,
 	}, &etcd.KV{
 		Op:    etcd.OP_DEL,
 		Key:   fmt.Sprintf(cons.DashUidsQueryFormat, endpoint, uid),
@@ -252,8 +353,8 @@ func updateEpInfo(uid string, oldEndpoint string, newEndpoint string) error {
 
 	return etcd.AtomicMultiKVOp(cons.DashEpLock, &etcd.KV{
 		Op:    etcd.OP_PUT,
-		Key:   fmt.Sprintf(cons.DashEpQueryFormat, newEndpoint),
-		Value: uid,
+		Key:   fmt.Sprintf(cons.DashEpQueryFormat, uid),
+		Value: newEndpoint,
 	}, &etcd.KV{
 		Op:    etcd.OP_DEL,
 		Key:   fmt.Sprintf(cons.DashUidsQueryFormat, oldEndpoint, uid),
@@ -290,6 +391,10 @@ func allocEndpoint(uid string) (string, error) {
 func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryRequest) (*proto.CommonQueryResponse, error) {
 	//vbytes, err := etcd.GetKV(fmt.Sprintf("endpoint/%v", r.Req))
 	//vbytes, err := etcd.GetKV(filepath.Join(cons.DashDataPrefix, "endpoints/", r.Req))
+	waitUid(r.Req)
+	/*if uidSuspensive(r.Req) {
+		return nil, E_SUSPENSIVE
+	}*/
 	vbytes, err := etcd.GetKV(fmt.Sprintf(cons.DashEpQueryFormat, r.Req))
 	if err != nil {
 		if err == etcd.ETCD_ERROR_EMPTY_VALUE {
@@ -376,17 +481,100 @@ func (ecm *EndpointCliManager) Search(ctx context.Context, endpoint string, in *
 func (ecm *EndpointCliManager) Upload(ctx context.Context, endpoint string, in *proto.UploadRequest, opts ...grpc.CallOption) (*proto.UploadResponse, error) {
 	ecm.ensureCliExists(endpoint)
 	cli := ecm.cliMap[endpoint]
+	log.Println("server.go ecm upload", in.Record, in.Token, in.CliAddr, in.Uid)
 	return cli.Upload(ctx, in, opts...)
 
 }
 
-var (
-	proxyReqCount        int32
-	proxyPauseMap        = make(map[string]bool)
-	proxyMtx             sync.Mutex
-	uidEndpointsCacheMtx sync.Mutex
-	uidEndpointsCache    = make(map[string]string)
-)
+//PC manager
+type PCCliManager struct {
+	cliMap map[string]proto.ProxyControllerClient
+	mtx    sync.Mutex
+}
+
+func newPCServerCli(endpoint string) proto.ProxyControllerClient {
+
+	creds, err := credentials.NewClientTLSFromFile(cons.UserCrt, "www.myshell.top")
+	if err != nil {
+		panic(err)
+	}
+
+	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(creds))
+	if err != nil {
+		panic(err)
+	}
+
+	//conn, err := grpc.Dial(endpoint, grpc.WithInsecure())
+	if err != nil {
+		panic(err)
+	}
+	return proto.NewProxyControllerClient(conn)
+}
+
+func (ecm *PCCliManager) ensureCliExists(endpoint string) {
+	if _, ok := ecm.cliMap[endpoint]; !ok {
+
+		ecm.mtx.Lock()
+		defer ecm.mtx.Unlock()
+		if _, ok = ecm.cliMap[endpoint]; !ok {
+			ecm.cliMap[endpoint] = newPCServerCli(endpoint)
+		}
+	}
+}
+
+func (ecm *PCCliManager) Pause(ctx context.Context, endpoint string, in *proto.PauseRequest, opts ...grpc.CallOption) (*proto.PauseResponse, error) {
+	//1. 先判断客户端是否存在
+	//2. 获取或者创建客户端
+	//3. 通过客户端请求
+
+	log.Print("DEBUG: proxy controller endpoint ", endpoint)
+	ecm.ensureCliExists(endpoint)
+	cli := ecm.cliMap[endpoint]
+
+	return cli.Pause(ctx, in, opts...)
+}
+
+//
+
+//SC manager
+type SCCliManager struct {
+	cliMap map[string]proto.ServerControllerClient
+	mtx    sync.Mutex
+}
+
+func newSCServerCli(endpoint string) proto.ServerControllerClient {
+
+	conn, err := grpc.Dial(endpoint, grpc.WithInsecure())
+	if err != nil {
+		panic(err)
+	}
+	return proto.NewServerControllerClient(conn)
+}
+
+func (ecm *SCCliManager) ensureCliExists(endpoint string) {
+	if _, ok := ecm.cliMap[endpoint]; !ok {
+
+		ecm.mtx.Lock()
+		defer ecm.mtx.Unlock()
+		if _, ok = ecm.cliMap[endpoint]; !ok {
+			ecm.cliMap[endpoint] = newSCServerCli(endpoint)
+		}
+	}
+}
+
+func (ecm *SCCliManager) UidLogout(ctx context.Context, endpoint string, in *proto.UidLogoutRequest, opts ...grpc.CallOption) (*proto.UidLogoutResponse, error) {
+	//1. 先判断客户端是否存在
+	//2. 获取或者创建客户端
+	//3. 通过客户端请求
+
+	log.Print("DEBUG: server controller endpoint ", endpoint)
+	ecm.ensureCliExists(endpoint)
+	cli := ecm.cliMap[endpoint]
+
+	return cli.UidLogout(ctx, in, opts...)
+}
+
+//
 
 func uidSuspensive(uid string) bool {
 	proxyMtx.Lock()
@@ -458,16 +646,22 @@ func RunProxyService(port int) error {
 }
 
 func (pc *ProxyController) Pause(ctx context.Context, req *proto.PauseRequest) (*proto.PauseResponse, error) {
-	uidSuspend(req.Uid)
-	for proxyReqCount != 0 {
-		time.Sleep(time.Millisecond * 10)
+	if req.Type == cons.OP_PAUSE {
+		uidSuspend(req.Uid)
+		for proxyReqCount != 0 {
+			time.Sleep(time.Millisecond * 10)
+		}
+
+		uidEndpointsCacheMtx.Lock()
+		defer uidEndpointsCacheMtx.Unlock()
+		log.Println("DEBUG proxy delete endpoint cache ", uidEndpointsCache, req.Uid)
+		delete(uidEndpointsCache, req.Uid)
+
+		return &proto.PauseResponse{ResponseCode: 200}, nil
+	} else {
+		uidResume(req.Uid)
+		return &proto.PauseResponse{ResponseCode: 200}, nil
 	}
-
-	uidEndpointsCacheMtx.Lock()
-	defer uidEndpointsCacheMtx.Unlock()
-	delete(uidEndpointsCache, req.Uid)
-
-	return &proto.PauseResponse{ResponseCode: 200}, nil
 }
 
 type ProxyServer struct {
@@ -545,13 +739,13 @@ type dealFunction func(p *peer.Peer, endpoint string)
 
 func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFunction) error {
 	waitUid(uid)
-	atomic.AddInt32(&proxyReqCount, 1)
-	defer atomic.AddInt32(&proxyReqCount, -1)
-
 	endpoint, err := ps.uidEndpoint(uid)
 	if err != nil {
 		return err
 	}
+
+	atomic.AddInt32(&proxyReqCount, 1)
+	defer atomic.AddInt32(&proxyReqCount, -1)
 
 	if p, ok := peer.FromContext(ctx); ok {
 		dealFunc(p, endpoint)
@@ -568,9 +762,9 @@ func (ps *ProxyServer) Search(ctx context.Context, req *proto.SearchRequest) (*p
 	if e := ps.doProxy(ctx, req.Uid, func(p *peer.Peer, endpoint string) {
 
 		req.CliAddr = p.Addr.String()
-		fmt.Println("DEBUG", req.GetCliAddr(), req.GetToken(), req.GetSearchString(), req.GetUid())
+		log.Println("server.go ps search ", req.GetCliAddr(), req.GetToken(), req.GetSearchString(), req.GetUid())
 		resp, err = ps.endpointCliManager.Search(context.Background(), endpoint, req)
-		fmt.Println("DEBUG", resp.GetResponse(), resp.GetResponseCode())
+		log.Println("server.go ps search", resp.GetResponse(), resp.GetResponseCode())
 
 	}); e != nil {
 		return nil, e
@@ -585,6 +779,7 @@ func (ps *ProxyServer) Upload(ctx context.Context, req *proto.UploadRequest) (*p
 
 	if e := ps.doProxy(ctx, req.Uid, func(p *peer.Peer, endpoint string) {
 		req.CliAddr = p.Addr.String()
+		log.Println("server.go proxyserver upload() ", req.Uid, req.CliAddr, req.Token, req.Record)
 		resp, err = ps.endpointCliManager.Upload(context.Background(), endpoint, req)
 	}); e != nil {
 		return nil, e
@@ -602,7 +797,9 @@ func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*pro
 	if e := ps.doProxy(ctx, req.Uid, func(p *peer.Peer, endpoint string) {
 		req.CliAddr = p.Addr.String()
 
-		resp, err = ps.endpointCliManager.Login(context.Background(), endpoint, req)
+		if resp, err = ps.endpointCliManager.Login(context.Background(), endpoint, req); err != nil {
+			log.Println(err)
+		}
 	}); e != nil {
 		return nil, e
 	}
