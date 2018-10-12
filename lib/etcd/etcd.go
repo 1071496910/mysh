@@ -1,5 +1,5 @@
-//package main
-package etcd
+package main
+//package etcd
 
 import (
 	"context"
@@ -197,4 +197,37 @@ func AtomicMultiKVOp(lockId string, kvs ...*KV) error {
 		return err
 	}
 	return nil
+}
+
+func getInitReversion(key string) (int64, error) {
+	
+	if err != nil {
+		return -1, err
+	}
+	return resp.Header.Revision, nil
+}
+
+func WatchTest(){
+	once.Do(Init)
+
+	initReversion , err := getInitReversion("/")
+	if err != nil {
+		return
+	}
+
+	//cli.Do(context.Background(),clientv3.OpPut("1","2", clientv3.WithRev(1)))
+
+	watchCh := cli.Watch(context.Background(),"/", clientv3.WithPrefix(), clientv3.WithRev(initReversion+1), clientv3.WithCreatedNotify())
+	for es := range watchCh {
+		for _, e := range es.Events {
+			fmt.Println(e)
+			fmt.Println(e.IsCreate())
+		}
+
+	}
+
+}
+
+func main() {
+	WatchTest()
 }

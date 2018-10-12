@@ -242,10 +242,10 @@ func (dc *DashController) Migrate(uid string, oep string, nep string) error {
 			log.Println(err)
 			return err
 		}
-		defer func() {
+		defer func(pe string) {
 			log.Println("resume", pe)
 			dc.pcClientCache.Pause(context.Background(), pe, &proto.PauseRequest{Uid: uid, Type: cons.OP_RESUME})
-		}()
+		}(pe)
 	}
 	log.Println("DEBUG after pause proxy")
 

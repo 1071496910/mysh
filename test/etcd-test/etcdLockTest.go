@@ -5,15 +5,16 @@ package main
 import (
 	"fmt"
 	"time"
+	"github.com/1071496910/mysh/lib/etcd"
 )
 
 func inc(iptr *int, threadId int) {
 	for i := 0; i < 1000000; i++ {
-		Lock("i")
+		etcd.Lock("i")
 		*iptr = *iptr + 1
 		//time.Sleep(1 * time.Second)
 		fmt.Printf("thread id: %v, i: %v\n", threadId, *iptr)
-		UnLock("i")
+		etcd.UnLock("i")
 	}
 }
 
