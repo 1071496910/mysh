@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+
+message PauseRequest {
+}
+message PauseResponse {
+    int32 responseCode = 1;
+}
+
+service ProxyController {
+    rpc Pause(PauseRequest) returns (stream PauseResponse);
+}
+

@@ -1,4 +1,4 @@
-package main
+package common
 
 import (
 	"bytes"
@@ -31,10 +31,10 @@ func meta(b byte) byte {
 
 var ErrShortWrite = errors.New("short write")
 var EOF = errors.New("EOF")
-var recorder = record.NewPersistentRecord(100000, "/tmp/hpc/bash-record")
+var Recorder = recorder.NewFileRecorder(100000, "/tmp/hpc/bash-record")
 
 func init() {
-	recorder.Run()
+	Recorder.Run()
 }
 
 func streamCopy(dst io.Writer, src io.Reader) (int64, error) {
@@ -208,7 +208,7 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 				}
 				//println("DEBUG: search buffer is ", string(searchBuffer))
 				if searchIndex > 0 {
-					candidateCommands = recorder.Find(string(searchBuffer))
+					candidateCommands = Recorder.Find(string(searchBuffer))
 				}
 				displaySearchStatus()
 

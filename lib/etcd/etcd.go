@@ -1,11 +1,12 @@
-package main
-//package etcd
+//package main
+package etcd
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"github.com/coreos/etcd/clientv3"
+	"google.golang.org/appengine/log"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -199,25 +200,72 @@ func AtomicMultiKVOp(lockId string, kvs ...*KV) error {
 	return nil
 }
 
+const (
+	EVENT_ADD = iota
+	EVENT_UPDATE
+	EVENT_DEL
+)
+
+type event struct {
+	key string
+	val string
+	et  int
+}
+
+type Controller struct {
+	key        string //key for watch
+	withPrefix bool
+	eventCh    chan *event
+	AddFunc    func(e *event) error
+	UpdateFunc func(e *event) error
+	DelFunc    func(e *event) error
+}
+
+func (c *Controller) Stop() {
+	close(c.eventCh)
+}
+
+func (c *Controller) Run() {
+	for e := range c.eventCh {
+		switch e.et {
+		case EVENT_ADD:
+			if err := c.AddFunc(e); err != nil {
+				log.Errorf(context.Background(), "deal create event error :%v \n", err)
+			}
+		case EVENT_UPDATE:
+			if err := c.UpdateFunc(e); err != nil {
+				log.Errorf(context.Background(), "deal update event error :%v \n", err)
+			}
+		case EVENT_DEL:
+			if err := c.DelFunc(e); err != nil {
+				log.Errorf(context.Background(), "deal delete event error :%v \n", err)
+			}
+		}
+	}
+}
+
 func getInitReversion(key string) (int64, error) {
-	
+	resp, err := cli.Get(context.Background(), key, clientv3.WithPrefix())
 	if err != nil {
 		return -1, err
+	}
+	for _, kv := range resp.Kvs {
+		fmt.Print("DEBUG: get kv ", kv.Key, kv.Value)
 	}
 	return resp.Header.Revision, nil
 }
 
-func WatchTest(){
+func WatchTest() {
 	once.Do(Init)
 
-	initReversion , err := getInitReversion("/")
+	initReversion, err := getInitReversion("/")
 	if err != nil {
 		return
 	}
 
 	//cli.Do(context.Background(),clientv3.OpPut("1","2", clientv3.WithRev(1)))
 
-	watchCh := cli.Watch(context.Background(),"/", clientv3.WithPrefix(), clientv3.WithRev(initReversion+1), clientv3.WithCreatedNotify())
+	watchCh := cli.Watch(context.Background(), "/", clientv3.WithPrefix(), clientv3.WithRev(initReversion+1), clientv3.WithCreatedNotify())
 	for es := range watchCh {
 		for _, e := range es.Events {
 			fmt.Println(e)
@@ -228,6 +276,6 @@ func WatchTest(){
 
 }
 
-func main() {
+/*func main() {
 	WatchTest()
-}
+}*/

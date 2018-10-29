@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/1071496910/mysh/lib/etcd"
 	"log"
 	"net"
 	"net/http"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/1071496910/mysh/auth"
 	"github.com/1071496910/mysh/cons"
-	"github.com/1071496910/mysh/lib/etcd"
 	"github.com/1071496910/mysh/proto"
 	"github.com/1071496910/mysh/recorder"
 
