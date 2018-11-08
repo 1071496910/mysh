@@ -46,6 +46,8 @@ func init() {
 	if hr,  err = hashring.NewHashRing(cons.HashRingSlotNum, cons.HashRingVNodeNum); err != nil {
 		panic(err)
 	}
+	//!!fortest
+	hr.AddNode("[::]:8083")
 }
 
 type scNode struct {
@@ -372,7 +374,8 @@ func (d *DashServer) UidState(ctx context.Context, r *proto.CommonQueryRequest) 
 }
 
 func addEpInfo(uid string, endpoint string) error {
-
+	log.Println("in add epinfo")
+	defer 	log.Println("return add epinfo")
 	return etcd.AtomicMultiKVOp(cons.DashEpLock, &etcd.KV{
 		Op:    etcd.OP_PUT,
 		Key:   fmt.Sprintf(cons.DashEpQueryFormat, uid),
@@ -386,9 +389,6 @@ func addEpInfo(uid string, endpoint string) error {
 
 func getEpInfo(uid string) (string, error) {
 	if byteRet, err := etcd.GetKV(fmt.Sprintf(cons.DashEpQueryFormat, uid)); err ==nil{
-		if err == etcd.ETCD_ERROR_EMPTY_VALUE {
-			 return "",nil
-		}
 		return "", err
 	} else {
 		return string(byteRet), err
@@ -428,14 +428,34 @@ func updateEpInfo(uid string, oldEndpoint string, newEndpoint string) error {
 }
 
 func allocEndpoint(uid string) (string, error) {
-	if curEndpoint, err := getEpInfo(uid); err != nil {
-		return "", err
-	}else {
-		if curEndpoint == "" {
-			if err := addEpInfo(uid, curEndpoint); err != nil {
+
+		    log.Println("in dash server before get node ")
+			if hashedEndpoint, err := hr.GetNode(uid); err != nil {
+				log.Println("in dash server allocep get node ")
 				return "", err
+			} else {
+				if err := addEpInfo(uid, hashedEndpoint); err != nil {
+					log.Println("in dash server addEpinfo err", err)
+					return "", err
+				}
+				log.Println("DEBUG: in allocEndpoint get ep", hashedEndpoint)
+				return hashedEndpoint, nil
 			}
-			return hr.GetNode(uid)
+
+
+
+	/*
+		if curEndpoint == "" {
+			if hashedEndpoint, err := hr.GetNode(uid); err != nil {
+				return "", err
+			} else {
+				if err := addEpInfo(uid, hashedEndpoint); err != nil {
+					log.Println("in dash server addEpinfo err", err)
+					return "", err
+				}
+				return hashedEndpoint, nil
+			}
+			//return hr.GetNode(uid)
 		}
 		if hashedEndpoint, err := hr.GetNode(uid); err != nil {
 			return curEndpoint, nil
@@ -485,11 +505,15 @@ func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryReques
 	}*/
 	vbytes, err := etcd.GetKV(fmt.Sprintf(cons.DashEpQueryFormat, r.Req))
 	if err != nil {
+
 		if err == etcd.ETCD_ERROR_EMPTY_VALUE {
 			//alloc endpoint
+			log.Println("in dashserver before allocEndpoint ")
 			if endpoint, err := allocEndpoint(r.Req); err != nil {
+				log.Println("in dashserver allocEndpoint err", err)
 				return nil, err
 			} else {
+				log.Println("in dashserver allocEndpoint ", endpoint)
 				return &proto.CommonQueryResponse{Resp: endpoint}, nil
 			}
 		}
@@ -831,7 +855,7 @@ func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFun
 	//waitUid(uid)
 	log.Println("DEBUG: in proxy server before get uid endpoint ")
 	endpoint, err := ps.uidEndpoint(uid)
-	log.Println("DEBUG: in proxy server after get uid endpoint ")
+	log.Println("DEBUG: in proxy server after get uid endpoint ", endpoint, err)
 	if err != nil {
 		return err
 	}
