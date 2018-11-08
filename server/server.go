@@ -648,7 +648,8 @@ func RunProxyService(port int) error {
 func (pc *ProxyController) Pause(ctx context.Context, req *proto.PauseRequest) (*proto.PauseResponse, error) {
 	if req.Type == cons.OP_PAUSE {
 		uidSuspend(req.Uid)
-		for proxyReqCount != 0 {
+		//for proxyReqCount != 0 {
+		for atomic.LoadInt32(&proxyReqCount) != 0 {
 			time.Sleep(time.Millisecond * 10)
 		}
 
