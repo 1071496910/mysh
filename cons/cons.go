@@ -48,4 +48,7 @@ var (
 
 	ClientRetryTimes    = 3
 	ClientRetryInterval = 3 * time.Second
+
+	HashRingSlotNum     = 4096
+	HashRingVNodeNum    = 32
 )

@@ -13,13 +13,13 @@ func main() {
 
 	go func() {
 		time.Sleep(time.Second * 15)
-		dc := server.NewDashController()
+		/*dc := server.NewDashController()
 		for {
 			time.Sleep(time.Second * 10)
 			dc.Migrate("hpc", "[::]:8083", "[::]:8084")
 			time.Sleep(time.Second * 10)
 			dc.Migrate("hpc", "[::]:8084", "[::]:8083")
-		}
+		}*/
 	}()
 	log.Fatal(s.Run())
 }

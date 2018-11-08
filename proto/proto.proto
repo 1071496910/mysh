@@ -52,16 +52,16 @@ service SearchService {
   rpc Logout(LogoutRequest) returns (LogoutResponse);
 }
 
-message PauseRequest {
+message CleanRequest {
   string uid = 1;
   int32  type = 2;
 }
-message PauseResponse {
+message CleanResponse {
   int32 responseCode = 1;
 }
 
 service ProxyController {
-  rpc Pause(PauseRequest) returns (PauseResponse);
+  rpc CleanUidCache(CleanRequest) returns (CleanResponse);
 }
 
 message UidLogoutRequest {

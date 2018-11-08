@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/1071496910/consistent-hashing"
 	"github.com/1071496910/mysh/auth"
 	"github.com/1071496910/mysh/cons"
 	"github.com/1071496910/mysh/proto"
@@ -32,12 +33,67 @@ var (
 	proxyReqCount        int32
 	proxyPauseMap        = make(map[string]bool)
 	proxyMtx             sync.Mutex
-	uidEndpointsCacheMtx sync.Mutex
-	uidEndpointsCache    = make(map[string]string)
+	uidEndpointsCacheMtx sync.RWMutex
+	//uidEndpointsCache    = make(map[string]string)
+	uidEndpointsCache    = &stalingCache{cache: make(map[string]*scNode)}
 	E_SUSPENSIVE         = errors.New("Uid is suspensive")
+	hr                   hashring.HashRing
+	scClientCache        = &SCCliManager{cliMap: make(map[string]proto.ServerControllerClient)}
 )
 
+func init() {
+	var err error
+	if hr,  err = hashring.NewHashRing(cons.HashRingSlotNum, cons.HashRingVNodeNum); err != nil {
+		panic(err)
+	}
+}
+
+type scNode struct {
+	val string
+	deadline time.Time
+}
+
+type stalingCache struct {
+	cache map[string]*scNode
+	mtx   sync.Mutex
+}
+
+
+
+func (sc *stalingCache) Put(key string, val string) {
+	sc.mtx.Lock()
+	defer sc.mtx.Unlock()
+
+	node := &scNode{
+		val: val,
+		deadline: time.Now().Add(time.Second * 30),
+	}
+
+	sc.cache[key] = node
+}
+
+func (sc *stalingCache) Get(key string) (string, bool) {
+	sc.mtx.Lock()
+	defer sc.mtx.Unlock()
+	if node, ok  := sc.cache[key]; ok {
+		if time.Now().Before(node.deadline) {
+			return node.val, true
+		}
+		delete(sc.cache, key)
+	}
+	return "", false
+}
+
+func(sc *stalingCache) Del(key string) {
+	sc.mtx.Lock()
+	defer sc.mtx.Unlock()
+	delete(sc.cache, key)
+}
+
+
+
 func RunSearchService(port int) error {
+
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", port))
 	if err != nil {
 		return fmt.Errorf("init network error: %v", err)
@@ -207,13 +263,12 @@ func NewCertServer() *CertServer {
 
 type DashController struct {
 	pcClientCache *PCCliManager
-	scClientCache *SCCliManager
+
 }
 
 func NewDashController() *DashController {
 	return &DashController{
 		pcClientCache: &PCCliManager{cliMap: make(map[string]proto.ProxyControllerClient)},
-		scClientCache: &SCCliManager{cliMap: make(map[string]proto.ServerControllerClient)},
 	}
 }
 
@@ -237,25 +292,18 @@ func (dc *DashController) Migrate(uid string, oep string, nep string) error {
 
 	for _, pe := range proxyEps {
 		log.Println("DEBUG dash delete endpoint cache ", pe, uid)
-		_, err := dc.pcClientCache.Pause(context.Background(), pe, &proto.PauseRequest{Uid: uid, Type: cons.OP_PAUSE})
+		_, err := dc.pcClientCache.Pause(context.Background(), pe, &proto.CleanRequest{Uid: uid, Type: cons.OP_PAUSE})
 		if err != nil {
 			log.Println(err)
 			return err
 		}
 		defer func(pe string) {
 			log.Println("resume", pe)
-			dc.pcClientCache.Pause(context.Background(), pe, &proto.PauseRequest{Uid: uid, Type: cons.OP_RESUME})
+			dc.pcClientCache.Pause(context.Background(), pe, &proto.CleanRequest{Uid: uid, Type: cons.OP_RESUME})
 		}(pe)
 	}
 	log.Println("DEBUG after pause proxy")
-
-	if _, err := dc.scClientCache.UidLogout(context.Background(), oep, &proto.UidLogoutRequest{Uid: uid}); err != nil {
-		log.Println(err)
-		return err
-	}
-	log.Println("DEBUG after logout")
-	return updateEpInfo(uid, oep, nep)
-
+	return nil
 }
 
 func RunDashService(port int) error {
@@ -336,6 +384,19 @@ func addEpInfo(uid string, endpoint string) error {
 	})
 }
 
+func getEpInfo(uid string) (string, error) {
+	if byteRet, err := etcd.GetKV(fmt.Sprintf(cons.DashEpQueryFormat, uid)); err ==nil{
+		if err == etcd.ETCD_ERROR_EMPTY_VALUE {
+			 return "",nil
+		}
+		return "", err
+	} else {
+		return string(byteRet), err
+	}
+}
+
+
+
 func delEpInfo(uid string, endpoint string) error {
 
 	return etcd.AtomicMultiKVOp(cons.DashEpLock, &etcd.KV{
@@ -367,7 +428,34 @@ func updateEpInfo(uid string, oldEndpoint string, newEndpoint string) error {
 }
 
 func allocEndpoint(uid string) (string, error) {
-	if endpoints, err := etcd.ListKeyByPrefix(cons.ServerRegistryPrefix); err != nil {
+	if curEndpoint, err := getEpInfo(uid); err != nil {
+		return "", err
+	}else {
+		if curEndpoint == "" {
+			if err := addEpInfo(uid, curEndpoint); err != nil {
+				return "", err
+			}
+			return hr.GetNode(uid)
+		}
+		if hashedEndpoint, err := hr.GetNode(uid); err != nil {
+			return curEndpoint, nil
+		} else {
+			if curEndpoint != hashedEndpoint {
+				//迁移数据
+				if _, err := scClientCache.UidLogout(context.Background(), curEndpoint, &proto.UidLogoutRequest{Uid: uid}); err != nil {
+					log.Println(err)
+					return "", err
+				}
+				log.Println("DEBUG after logout")
+				//return updateEpInfo(uid, oep, nep)
+				return hashedEndpoint, updateEpInfo(uid, curEndpoint, hashedEndpoint)
+			}
+			return curEndpoint, nil
+		}
+	}
+	//return "", nil
+
+	/*if endpoints, err := etcd.ListKeyByPrefix(cons.ServerRegistryPrefix); err != nil {
 		return "", err
 	} else {
 		if len(endpoints) == 0 {
@@ -384,7 +472,7 @@ func allocEndpoint(uid string) (string, error) {
 			return "", err
 		}
 		return endpoint, nil
-	}
+	}*/
 
 }
 
@@ -522,7 +610,7 @@ func (ecm *PCCliManager) ensureCliExists(endpoint string) {
 	}
 }
 
-func (ecm *PCCliManager) Pause(ctx context.Context, endpoint string, in *proto.PauseRequest, opts ...grpc.CallOption) (*proto.PauseResponse, error) {
+func (ecm *PCCliManager) Pause(ctx context.Context, endpoint string, in *proto.CleanRequest, opts ...grpc.CallOption) (*proto.CleanResponse, error) {
 	//1. 先判断客户端是否存在
 	//2. 获取或者创建客户端
 	//3. 通过客户端请求
@@ -531,7 +619,7 @@ func (ecm *PCCliManager) Pause(ctx context.Context, endpoint string, in *proto.P
 	ecm.ensureCliExists(endpoint)
 	cli := ecm.cliMap[endpoint]
 
-	return cli.Pause(ctx, in, opts...)
+	return cli.CleanUidCache(ctx, in, opts...)
 }
 
 //
@@ -645,24 +733,20 @@ func RunProxyService(port int) error {
 	return nil
 }
 
-func (pc *ProxyController) Pause(ctx context.Context, req *proto.PauseRequest) (*proto.PauseResponse, error) {
-	if req.Type == cons.OP_PAUSE {
-		uidSuspend(req.Uid)
+func (pc *ProxyController) CleanUidCache(ctx context.Context, req *proto.CleanRequest) (*proto.CleanResponse, error) {
+		//uidSuspend(req.Uid)
 		//for proxyReqCount != 0 {
+		uidEndpointsCacheMtx.Lock()
+		defer uidEndpointsCacheMtx.Unlock()
 		for atomic.LoadInt32(&proxyReqCount) != 0 {
 			time.Sleep(time.Millisecond * 10)
 		}
 
-		uidEndpointsCacheMtx.Lock()
-		defer uidEndpointsCacheMtx.Unlock()
 		log.Println("DEBUG proxy delete endpoint cache ", uidEndpointsCache, req.Uid)
-		delete(uidEndpointsCache, req.Uid)
+		uidEndpointsCache.Del(req.Uid)
+		//delete(uidEndpointsCache, req.Uid)
 
-		return &proto.PauseResponse{ResponseCode: 200}, nil
-	} else {
-		uidResume(req.Uid)
-		return &proto.PauseResponse{ResponseCode: 200}, nil
-	}
+		return &proto.CleanResponse{ResponseCode: 200}, nil
 }
 
 type ProxyServer struct {
@@ -719,28 +803,35 @@ func (ps *ProxyServer) Run() error {
 }
 
 func (ps *ProxyServer) uidEndpoint(uid string) (string, error) {
+	uidEndpointsCacheMtx.RLock()
+	ep, ok := uidEndpointsCache.Get(uid)
+	uidEndpointsCacheMtx.RUnlock()
+	if ok {
+		return ep, nil
+	}
+
 	uidEndpointsCacheMtx.Lock()
 	defer uidEndpointsCacheMtx.Unlock()
-	if ep, ok := uidEndpointsCache[uid]; ok {
-		return ep, nil
-	} else {
 
-		resp, err := ps.dashCli.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
-			Req: uid,
-		})
-		if err != nil {
-			return "", err
-		}
-		uidEndpointsCache[uid] = resp.Resp
-		return resp.Resp, nil
+	resp, err := ps.dashCli.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
+		Req: uid,
+	})
+	if err != nil {
+		return "", err
 	}
+	//uidEndpointsCache[uid] = resp.Resp
+	uidEndpointsCache.Put(uid, resp.Resp)
+	return resp.Resp, nil
+
 }
 
 type dealFunction func(p *peer.Peer, endpoint string)
 
 func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFunction) error {
-	waitUid(uid)
+	//waitUid(uid)
+	log.Println("DEBUG: in proxy server before get uid endpoint ")
 	endpoint, err := ps.uidEndpoint(uid)
+	log.Println("DEBUG: in proxy server after get uid endpoint ")
 	if err != nil {
 		return err
 	}
@@ -786,7 +877,7 @@ func (ps *ProxyServer) Upload(ctx context.Context, req *proto.UploadRequest) (*p
 		return nil, e
 	}
 
-	return resp, nil
+	return resp, err
 }
 
 func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto.LoginResponse, error) {
@@ -805,7 +896,7 @@ func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*pro
 		return nil, e
 	}
 
-	return resp, nil
+	return resp, err
 
 }
 
@@ -820,7 +911,7 @@ func (ps *ProxyServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*p
 		return nil, e
 	}
 
-	return resp, nil
+	return resp, err
 
 }
 
