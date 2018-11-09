@@ -172,7 +172,6 @@ func (p *persistentRecorder) Run() {
 	go func() {
 	Loop:
 		for {
-			log.Println("record run loop, get stop chan", p.stopCh)
 			select {
 			case <-ticker.C:
 				log.Println("record run loop, before sync")

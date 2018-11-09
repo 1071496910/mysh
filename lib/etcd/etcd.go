@@ -165,6 +165,13 @@ func ListKeyByPrefix(prefix string) ([]string, error) {
 	return ret, nil
 }
 
+func DElKeysByPrefix(prefix string)  error {
+	once.Do(Init)
+
+	_, err := cli.Delete(context.Background(), prefix, clientv3.WithPrefix())
+	return err
+}
+
 const (
 	OP_PUT = iota
 	OP_DEL

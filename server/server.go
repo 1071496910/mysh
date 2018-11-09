@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/1071496910/event-controller/controller"
 	"github.com/1071496910/mysh/lib/etcd"
 	"log"
 	"net"
@@ -47,7 +48,7 @@ func init() {
 		panic(err)
 	}
 	//!!fortest
-	hr.AddNode("[::]:8083")
+	//hr.AddNode("[::]:8083")
 }
 
 type scNode struct {
@@ -79,6 +80,7 @@ func (sc *stalingCache) Get(key string) (string, bool) {
 	defer sc.mtx.Unlock()
 	if node, ok  := sc.cache[key]; ok {
 		if time.Now().Before(node.deadline) {
+			fmt.Println(time.Now(), "before", node.deadline)
 			return node.val, true
 		}
 		delete(sc.cache, key)
@@ -265,16 +267,75 @@ func NewCertServer() *CertServer {
 
 type DashController struct {
 	pcClientCache *PCCliManager
-
+	ec            *controller.Controller
 }
 
-func NewDashController() *DashController {
-	return &DashController{
+func NewDashController() (*DashController, error) {
+	sucker, err := controller.NewEtcdSucker("127.0.0.1:2379", cons.ServerRegistryPrefix, controller.EtcdSuckerWithRecursive())
+	if err != nil {
+		return nil, err
+	}
+
+	dashController := &DashController{
 		pcClientCache: &PCCliManager{cliMap: make(map[string]proto.ProxyControllerClient)},
 	}
+
+	dashController.ec = controller.NewController(sucker,
+			func(i interface{}) {
+				kv := i.(*controller.EtcdSuckerEventObj)
+				if node, err := filepath.Rel(cons.ServerRegistryPrefix, string(kv.Key)); err != nil {
+					log.Println("parse node info err ", err)
+					return
+				} else {
+					log.Println("add node ", node, "to hash",  hr.AddNode(node))
+				}
+			},
+
+			func(i interface{}) {
+				kv := i.(*controller.EtcdSuckerEventObj)
+				fmt.Printf("In update func[key: %v, val: %v]\n", string(kv.Key), string(kv.Val))
+			},
+			func(i interface{}) {
+			kv := i.(*controller.EtcdSuckerEventObj)
+			if node, err := filepath.Rel(cons.ServerRegistryPrefix, string(kv.Key)); err != nil {
+				log.Println("parse node info err ", err)
+				return
+			} else {
+				uids, err := etcd.ListKeyByPrefix(fmt.Sprintf(cons.DashUidsQueryFormat, node))
+				if err != nil {
+					log.Println("get uid of node err", err)
+					return
+				}
+				err = etcd.DElKeysByPrefix(fmt.Sprintf(cons.DashUidsQueryFormat, node))
+				if err != nil {
+					log.Println("del node uid inof err", err)
+					return
+				}
+				for _, uid := range uids {
+					err := dashController.cleanUidCache(uid)
+					if err != nil {
+						log.Println("del node uid inof err", err)
+						return
+					}
+
+				}
+
+				log.Println("del node ", node, "from hash",  hr.DelNode(node))
+			}
+		},1024)
+
+	return dashController, nil
+
 }
 
-func (dc *DashController) Migrate(uid string, oep string, nep string) error {
+func (dc *DashController) Run() error {
+	return dc.ec.Run()
+}
+
+func (dc *DashController) cleanUidCache(uid string) error {
+	if uid == "" {
+		return fmt.Errorf("uid can't be empty")
+	}
 	uidSuspend(uid)
 	defer uidResume(uid)
 	proxyNodes, err := etcd.ListKeyByPrefix(cons.ProxyRegistryPrefix)
@@ -294,17 +355,13 @@ func (dc *DashController) Migrate(uid string, oep string, nep string) error {
 
 	for _, pe := range proxyEps {
 		log.Println("DEBUG dash delete endpoint cache ", pe, uid)
-		_, err := dc.pcClientCache.Pause(context.Background(), pe, &proto.CleanRequest{Uid: uid, Type: cons.OP_PAUSE})
+		_, err := dc.pcClientCache.CleanUidCache(context.Background(), pe, &proto.CleanRequest{Uid: uid})
 		if err != nil {
 			log.Println(err)
 			return err
 		}
-		defer func(pe string) {
-			log.Println("resume", pe)
-			dc.pcClientCache.Pause(context.Background(), pe, &proto.CleanRequest{Uid: uid, Type: cons.OP_RESUME})
-		}(pe)
 	}
-	log.Println("DEBUG after pause proxy")
+	log.Println("DEBUG clean proxy uid cache")
 	return nil
 }
 
@@ -520,6 +577,24 @@ func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryReques
 		return nil, err
 	}
 
+	hashedEp, err := hr.GetNode(r.Req)
+	if err != nil {
+		return nil, err
+	}
+	curEndpoint := string(vbytes)
+	if  hashedEp != curEndpoint {
+		if _, err := scClientCache.UidLogout(context.Background(), curEndpoint, &proto.UidLogoutRequest{Uid: r.Req}); err != nil {
+			log.Println("DEBUG: dash uid endpoint, logout err:", err)
+
+
+			//return nil, err
+		}
+		log.Println("DEBUG after logout")
+		//return updateEpInfo(uid, oep, nep)
+		return &proto.CommonQueryResponse{
+			Resp:hashedEp} , updateEpInfo(r.Req, curEndpoint, hashedEp)
+	}
+
 	return &proto.CommonQueryResponse{
 		Resp: string(vbytes),
 	}, nil
@@ -634,7 +709,7 @@ func (ecm *PCCliManager) ensureCliExists(endpoint string) {
 	}
 }
 
-func (ecm *PCCliManager) Pause(ctx context.Context, endpoint string, in *proto.CleanRequest, opts ...grpc.CallOption) (*proto.CleanResponse, error) {
+func (ecm *PCCliManager) CleanUidCache(ctx context.Context, endpoint string, in *proto.CleanRequest, opts ...grpc.CallOption) (*proto.CleanResponse, error) {
 	//1. 先判断客户端是否存在
 	//2. 获取或者创建客户端
 	//3. 通过客户端请求
@@ -787,11 +862,6 @@ func NewProxyServer(port int) *ProxyServer {
 	endpointCliManger := &EndpointCliManager{
 		cliMap: make(map[string]proto.SearchServiceClient),
 	}
-	//conn2, err := grpc.Dial("127.0.0.1:8083", grpc.WithInsecure())
-	//if err != nil {
-	//	panic(err)
-	//}
-	//endpointCliManger.cliMap["127.0.0.1:8083"] = proto.NewSearchServiceClient(conn2)
 
 	return &ProxyServer{
 		port:               port,
@@ -853,9 +923,9 @@ type dealFunction func(p *peer.Peer, endpoint string)
 
 func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFunction) error {
 	//waitUid(uid)
-	log.Println("DEBUG: in proxy server before get uid endpoint ")
+
 	endpoint, err := ps.uidEndpoint(uid)
-	log.Println("DEBUG: in proxy server after get uid endpoint ", endpoint, err)
+
 	if err != nil {
 		return err
 	}

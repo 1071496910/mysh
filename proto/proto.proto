@@ -54,7 +54,6 @@ service SearchService {
 
 message CleanRequest {
   string uid = 1;
-  int32  type = 2;
 }
 message CleanResponse {
   int32 responseCode = 1;
