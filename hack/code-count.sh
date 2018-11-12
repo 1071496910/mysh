@@ -1,2 +1,2 @@
 #!/bin/bash
-cloc --exclude-dir vendor .
+cloc --exclude-dir vendor,proto .
