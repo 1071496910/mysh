@@ -1,4 +1,5 @@
 package main
+
 //test1
 import (
 	"bytes"
@@ -246,11 +247,14 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 			case 0x1b:
 				b, err := stdinBuffer.ReadByte()
 				if err != nil {
+					if err == io.EOF {
+						continue
+					}
 					panic(err)
 				}
 
 				if b != '[' {
-					panic("unknow CSI sequence")
+					panic(fmt.Sprint("unknow CSI sequence", b))
 				}
 
 				//fileLog("DEBUG: in CSI seq")
