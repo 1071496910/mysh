@@ -1,2 +1,2 @@
 # mysh
-bash warpper record history to cloud
+bash warpper who record history to cloud
