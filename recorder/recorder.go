@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	defaultFileStorageDir   = "/var/lib/mysh/"
-	defaultFileRecorderSize = 10000
+	defaultFileStorageDir = "/var/lib/mysh/"
+	//defaultFileRecorderSize = 10000
 	defaultRecorderNum      = 100000
 	defaultRecorderManager  RecorderManager
 	defaultEtcdRecorderSize = 10000
@@ -61,10 +61,10 @@ func (r *recorder) List() []string {
 	return kList
 }
 
-type recorderPersistentModel struct {
+/*type recorderPersistentModel struct {
 	KList []string
 	VList []string
-}
+}*/
 
 //func (r *recorder) Dump() recorderPersistentModel {
 //
@@ -174,9 +174,9 @@ func (p *persistentRecorder) Run() {
 		for {
 			select {
 			case <-ticker.C:
-				log.Println("record run loop, before sync")
+				//log.Println("record run loop, before sync")
 				p.sync()
-				log.Println("record run loop, after sync")
+				//log.Println("record run loop, after sync")
 			case <-p.stopCh:
 				log.Println("recorder stoping")
 				break Loop
@@ -196,13 +196,13 @@ func (p *persistentRecorder) Stop() {
 func (p *persistentRecorder) sync() error {
 	p.checkInited()
 
-	log.Println("record.go in sync(), wait p.m.lock()")
+	//log.Println("record.go in sync(), wait p.m.lock()")
 	p.m.Lock()
 	defer func() {
-		log.Println("record.go in sync(), release  p.m.lock()")
+		//log.Println("record.go in sync(), release  p.m.lock()")
 		p.m.Unlock()
 	}()
-	log.Println("record.go in sync(), get p.m.lock()")
+	//log.Println("record.go in sync(), get p.m.lock()")
 
 	data, err := json.Marshal(p.r.List())
 	if err != nil {
