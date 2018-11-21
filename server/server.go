@@ -103,9 +103,9 @@ func RunSearchService(port int) error {
 	proto.RegisterServerControllerServer(s, NewSearchController(port))
 	reflection.Register(s)
 	if err := etcd.Register(cons.ServerRegistryPrefix, lis.Addr().String()); err != nil {
-		log.Println("Registry searchService ok...")
 		return err
 	}
+	log.Println("Registry searchService ok...")
 	if err := s.Serve(lis); err != nil {
 		return err
 	}
@@ -122,6 +122,13 @@ func NewSearchController(port int) *SearchController {
 	return &SearchController{
 		port: port,
 	}
+}
+
+func (sc *SearchController) Check(context.Context, *proto.HealthCheckRequest) (*proto.HealthCheckResponse, error) {
+	return &proto.HealthCheckResponse{
+		Status: proto.HealthCheckResponse_SERVING,
+	}, nil
+
 }
 
 func (sc *SearchController) UidLogout(ctx context.Context, req *proto.UidLogoutRequest) (*proto.UidLogoutResponse, error) {
@@ -228,7 +235,6 @@ func (ss *SearchServer) Login(ctx context.Context, req *proto.LoginRequest) (*pr
 	}
 	log.Println("Login failt:", req.Uid)
 	return resp, fmt.Errorf("Incorrect username or password.")
-
 }
 
 func (ss *SearchServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*proto.LogoutResponse, error) {
@@ -561,6 +567,14 @@ func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryReques
 	}
 	curEndpoint := string(vbytes)
 	if hashedEp != curEndpoint {
+
+		resp, err := scClientCache.Check(context.Background(), hashedEp, &proto.HealthCheckRequest{})
+		if err != nil || resp.Status != proto.HealthCheckResponse_SERVING {
+			log.Println("DEBUG: uid endpoint check endpoint", hashedEp, "ok")
+			return &proto.CommonQueryResponse{
+				Resp: curEndpoint}, nil
+		}
+
 		uidSuspend(r.Req)
 		defer uidResume(r.Req)
 
@@ -755,6 +769,18 @@ func (ecm *SCCliManager) UidLogout(ctx context.Context, endpoint string, in *pro
 	return cli.UidLogout(ctx, in, opts...)
 }
 
+func (ecm *SCCliManager) Check(ctx context.Context, endpoint string, in *proto.HealthCheckRequest, opts ...grpc.CallOption) (*proto.HealthCheckResponse, error) {
+	//1. 先判断客户端是否存在
+	//2. 获取或者创建客户端
+	//3. 通过客户端请求
+
+	log.Print("DEBUG: in check server controller endpoint ", endpoint)
+	ecm.ensureCliExists(endpoint)
+	cli := ecm.cliMap[endpoint]
+
+	return cli.Check(ctx, in, opts...)
+}
+
 //
 
 func uidSuspensive(uid string) bool {
@@ -932,6 +958,7 @@ func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFun
 	if p, ok := peer.FromContext(ctx); ok {
 		err := dealFunc(p, endpoint)
 		if err != nil {
+			log.Println("DEBUG: in do search err: ", err)
 			atomic.AddInt32(&proxyReqCount, -1)
 
 			uidEndpointsCacheMtx.Lock()
@@ -946,6 +973,13 @@ func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFun
 	}
 
 	return fmt.Errorf("Can't get ip from peer")
+}
+
+func (ss *ProxyServer) Check(context.Context, *proto.HealthCheckRequest) (*proto.HealthCheckResponse, error) {
+	return &proto.HealthCheckResponse{
+		Status: proto.HealthCheckResponse_SERVING,
+	}, nil
+
 }
 
 func (ps *ProxyServer) Search(ctx context.Context, req *proto.SearchRequest) (*proto.SearchResponse, error) {

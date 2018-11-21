@@ -29,7 +29,7 @@ var (
 	OP_RESUME int32 = 1
 
 	MysqlStr            = "root:123456@tcp(localhost:3306)/mysh?autocommit=true"
-	LeaseTTL            = 10
+	LeaseTTL            = 1
 	ProxyRegistryPrefix = "/mysh/proxy/"
 
 	ServerRegistryPrefix = "/mysh/server/"
@@ -49,6 +49,6 @@ var (
 	ClientRetryTimes    = 3
 	ClientRetryInterval = 3 * time.Second
 
-	HashRingSlotNum     = 4096
-	HashRingVNodeNum    = 32
+	HashRingSlotNum  = 4096
+	HashRingVNodeNum = 32
 )
