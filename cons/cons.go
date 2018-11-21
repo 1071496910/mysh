@@ -51,4 +51,6 @@ var (
 
 	HashRingSlotNum  = 4096
 	HashRingVNodeNum = 32
+
+	ControllerEventQueueLen = 1024
 )

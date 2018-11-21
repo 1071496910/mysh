@@ -3,6 +3,7 @@ package etcd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/coreos/etcd/clientv3"
@@ -63,6 +64,78 @@ func GetKV(k string) ([]byte, error) {
 	return nil, ETCD_ERROR_EMPTY_VALUE
 }
 
+type electorInfo struct {
+	ElectorID string
+	TTL       int64
+	ElectTime time.Time
+	LeaseID   clientv3.LeaseID
+}
+
+func (e electorInfo) String() string {
+	b, err := json.Marshal(e)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func IsLeader(electKey string, electorID string) (bool, error) {
+	leaderInfo, err := GetKV(electKey)
+	if err != nil {
+		return false, err
+	}
+	leader := electorInfo{}
+	json.Unmarshal(leaderInfo, &leader)
+	return leader.ElectorID == electorID, nil
+}
+
+func Elect(electKey string, electorID string, ttl int64) error {
+	once.Do(Init)
+	leaseResp, err := cli.Grant(context.Background(), ttl)
+	if err != nil {
+		return err
+	}
+
+	for {
+		time.Sleep(time.Millisecond * 400)
+		cli.KeepAliveOnce(context.Background(), leaseResp.ID)
+		elector := electorInfo{
+			ElectorID: electorID,
+			TTL:       ttl,
+			ElectTime: time.Now(),
+			LeaseID:   leaseResp.ID,
+		}
+		t := cli.Txn(context.Background())
+		//txnResp, err := t.If(clientv3.Compare(clientv3.CreateRevision(electKey), "=", 0)).
+		_, err := t.If(clientv3.Compare(clientv3.CreateRevision(electKey), "=", 0)).
+			Then(clientv3.OpPut(electKey, elector.String(), clientv3.WithLease(leaseResp.ID))).Commit()
+		if err != nil {
+
+			fmt.Println("in elect:", err)
+			return err
+		}
+
+		/*if !txnResp.Succeeded {
+			leaderInfo, err := GetKV(electKey)
+			if err!= nil {
+				continue
+			}
+			leader := electorInfo{}
+			json.Unmarshal(leaderInfo, &leader)
+
+			if leader.ElectorID == electorID &&
+				leader.ElectTime.Add(time.Second * time.Duration(leader.TTL)).
+				Before(time.Now().Add(time.Second)) {
+				cli.KeepAliveOnce(context.Background(), leader.LeaseID)
+				fmt.Println("renew lease ok:", electKey, electorID)
+			}
+		}*/
+
+	}
+
+	return nil
+}
+
 var lockRecord map[string]clientv3.LeaseID = map[string]clientv3.LeaseID{}
 var lockRecordMtx sync.Mutex
 
@@ -85,7 +158,6 @@ func tryLock(leaseId clientv3.LeaseID, k string) (bool, error) {
 	fmt.Println("Get lease ok:", leaseId)
 
 	return true, nil
-
 }
 
 func Lock(k string) error {
@@ -165,7 +237,7 @@ func ListKeyByPrefix(prefix string) ([]string, error) {
 	return ret, nil
 }
 
-func DElKeysByPrefix(prefix string)  error {
+func DElKeysByPrefix(prefix string) error {
 	once.Do(Init)
 
 	_, err := cli.Delete(context.Background(), prefix, clientv3.WithPrefix())
@@ -285,4 +357,13 @@ func WatchTest() {
 
 /*func main() {
 	WatchTest()
+}*/
+
+/*func electTest(){
+	go Elect("testkey", "val1", 5)
+	for i:=0; i<100;i ++{
+		time.Sleep(time.Second)
+		isLeader, err := IsLeader("testkey", "val1")
+		fmt.Println("val1", isLeader, err)
+	}
 }*/

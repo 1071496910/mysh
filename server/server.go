@@ -272,7 +272,7 @@ type DashController struct {
 }
 
 func NewDashController() (*DashController, error) {
-	sucker, err := controller.NewEtcdSucker("127.0.0.1:2379", cons.ServerRegistryPrefix, controller.EtcdSuckerWithRecursive())
+	sucker, err := controller.NewEtcdSucker(cons.EtcdEndpoints, cons.ServerRegistryPrefix, controller.EtcdSuckerWithRecursive())
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +311,7 @@ func NewDashController() (*DashController, error) {
 
 				log.Println("del node ", node, "from hash", hr.DelNode(node))
 			}
-		}, 1024)
+		}, cons.ControllerEventQueueLen)
 
 	return dashController, nil
 
@@ -570,7 +570,7 @@ func (d *DashServer) UidEndpoint(ctx context.Context, r *proto.CommonQueryReques
 
 		resp, err := scClientCache.Check(context.Background(), hashedEp, &proto.HealthCheckRequest{})
 		if err != nil || resp.Status != proto.HealthCheckResponse_SERVING {
-			log.Println("DEBUG: uid endpoint check endpoint", hashedEp, "ok")
+			log.Println("DEBUG: uid endpoint check endpoint", hashedEp, "not ok")
 			return &proto.CommonQueryResponse{
 				Resp: curEndpoint}, nil
 		}
