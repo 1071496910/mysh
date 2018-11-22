@@ -49,11 +49,14 @@ var (
 	logDir string
 
 	clientToken = ""
-	loginer     func() string
+	//loginer     func() string
+	loginer client.Loginer
 
 	lastCommand = ""
 
 	unixSock = ""
+
+	UidCache = ""
 )
 
 func init() {
@@ -89,7 +92,8 @@ func init() {
 		panic(err)
 	}
 	recorder = proto.NewSearchServiceClient(conn)
-	loginer = client.MakeVarLoginFunc(recorder)
+	//loginer =  client.MakeVarLoginFunc(recorder)
+	loginer = client.NewLoginer(recorder)
 }
 
 func streamCopy(dst io.Writer, src io.Reader) (int64, error) {
@@ -156,7 +160,7 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 	//check network
 	resp, err := recorder.Search(context.Background(), &proto.SearchRequest{
 		SearchString: "",
-		Uid:          client.UidCache,
+		Uid:          UidCache,
 		Token:        clientToken,
 	})
 
@@ -311,7 +315,7 @@ func doSearch(stdinBuffer *bytes.Buffer, bashinBuffer *bytes.Buffer) {
 					//candidateCommands = recorder.Find(string(searchBuffer))
 					util.Retry(cons.ClientRetryTimes, cons.ClientRetryInterval, func() error {
 						if resp, err := recorder.Search(context.Background(), &proto.SearchRequest{
-							Uid:          client.UidCache,
+							Uid:          UidCache,
 							Token:        clientToken,
 							SearchString: string(searchBuffer),
 						}); err != nil {
@@ -410,7 +414,7 @@ func Run() error {
 
 func login() {
 
-	clientToken = loginer()
+	UidCache, clientToken = loginer.Login()
 }
 
 func uploadProxyHandler(resp http.ResponseWriter, req *http.Request) {
@@ -423,7 +427,7 @@ func uploadProxyHandler(resp http.ResponseWriter, req *http.Request) {
 
 	rp, err := recorder.Search(context.Background(), &proto.SearchRequest{
 		SearchString: "",
-		Uid:          client.UidCache,
+		Uid:          UidCache,
 		Token:        clientToken,
 	})
 
@@ -442,7 +446,7 @@ func uploadProxyHandler(resp http.ResponseWriter, req *http.Request) {
 		if resp, err := recorder.Upload(context.Background(), &proto.UploadRequest{
 			Token:  clientToken,
 			Record: string(body),
-			Uid:    client.UidCache,
+			Uid:    UidCache,
 		}); err != nil {
 			return err
 		} else if resp.ResponseCode != 200 {
@@ -481,7 +485,7 @@ func main() {
 
 	defer func() {
 		logoutReq := &proto.LogoutRequest{
-			Uid: client.UidCache,
+			Uid: UidCache,
 		}
 
 		if resp, err := recorder.Logout(context.Background(), logoutReq); err == nil && resp.ResponseCode == 200 {

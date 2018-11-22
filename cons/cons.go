@@ -53,4 +53,7 @@ var (
 	HashRingVNodeNum = 32
 
 	ControllerEventQueueLen = 1024
+
+	EnvKeyUid = "MYSH_UID"
+	EnvKeyPs  = "MYSH_PS"
 )

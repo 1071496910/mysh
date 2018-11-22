@@ -77,7 +77,7 @@ func (sc *stalingCache) Get(key string) (string, bool) {
 	defer sc.mtx.Unlock()
 	if node, ok := sc.cache[key]; ok {
 		if time.Now().Before(node.deadline) {
-			fmt.Println(time.Now(), "before", node.deadline)
+			log.Println("DEBUG: in stalingcache", time.Now(), "before", node.deadline)
 			return node.val, true
 		}
 		delete(sc.cache, key)
@@ -718,9 +718,6 @@ func (ecm *PCCliManager) ensureCliExists(endpoint string) {
 }
 
 func (ecm *PCCliManager) CleanUidCache(ctx context.Context, endpoint string, in *proto.CleanRequest, opts ...grpc.CallOption) (*proto.CleanResponse, error) {
-	//1. 先判断客户端是否存在
-	//2. 获取或者创建客户端
-	//3. 通过客户端请求
 
 	log.Print("DEBUG: proxy controller endpoint ", endpoint)
 	ecm.ensureCliExists(endpoint)
@@ -1054,142 +1051,3 @@ func (ps *ProxyServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*p
 	return resp, nil
 
 }
-
-//old proxy server impl
-/*func (ps *ProxyServer) Search(ctx context.Context, req *proto.SearchRequest) (*proto.SearchResponse, error) {
-	//1. 获取uid对应的endpoint
-	//2. 获取client的地址加入请求转给endpoint
-	waitUid(req.Uid)
-	atomic.AddInt32(&proxyReqCount, 1)
-	defer atomic.AddInt32(&proxyReqCount, -1)
-
-	endpoint, err := ps.uidEndpoint(req.Uid)
-	if err != nil {
-		return nil, err
-	}
-
-	if p, ok := peer.FromContext(ctx); ok {
-		req.CliAddr = p.Addr.String()
-		fmt.Println("DEBUG", req.GetCliAddr(), req.GetToken(), req.GetSearchString(), req.GetUid())
-		sresp, err := ps.endpointCliManager.Search(context.Background(), endpoint, req)
-		fmt.Println("DEBUG", sresp.GetResponse(), sresp.GetResponseCode())
-
-		if err != nil {
-			return nil, err
-		}
-
-		return sresp, err
-
-	}
-
-	return nil, fmt.Errorf("Can't get ip from peer")
-}*/
-
-/*func (ps *ProxyServer) Upload(ctx context.Context, req *proto.UploadRequest) (*proto.UploadResponse, error) {
-	waitUid(req.Uid)
-	atomic.AddInt32(&proxyReqCount, 1)
-	defer atomic.AddInt32(&proxyReqCount, -1)
-
-	endpoint, err := ps.uidEndpoint(req.Uid)
-	if err != nil {
-		return nil, err
-	}
-
-	if p, ok := peer.FromContext(ctx); ok {
-		req.CliAddr = p.Addr.String()
-		sresp, err := ps.endpointCliManager.Upload(context.Background(), endpoint, req)
-		if err != nil {
-			return nil, err
-		}
-
-		return sresp, err
-
-	}
-	return nil, fmt.Errorf("Can't get ip from peer")
-}*/
-
-/*func (ps *ProxyServer) Login(ctx context.Context, req *proto.LoginRequest) (*proto.LoginResponse, error) {
-	waitUid(req.Uid)
-	atomic.AddInt32(&proxyReqCount, 1)
-	defer atomic.AddInt32(&proxyReqCount, -1)
-
-	endpoint, err := ps.uidEndpoint(req.Uid)
-	if err != nil {
-		return nil, err
-	}
-
-	if p, ok := peer.FromContext(ctx); ok {
-		req.CliAddr = p.Addr.String()
-		sresp, err := ps.endpointCliManager.Login(context.Background(), endpoint, req)
-		if err != nil {
-			return nil, err
-		}
-
-		return sresp, err
-
-	}
-	return nil, fmt.Errorf("Can't get ip from peer")
-
-}*/
-
-/*func (ps *ProxyServer) Logout(ctx context.Context, req *proto.LogoutRequest) (*proto.LogoutResponse, error) {
-	waitUid(req.Uid)
-	atomic.AddInt32(&proxyReqCount, 1)
-	defer atomic.AddInt32(&proxyReqCount, -1)
-
-	endpoint, err := ps.uidEndpoint(req.Uid)
-	if err != nil {
-		return nil, err
-	}
-
-	if p, ok := peer.FromContext(ctx); ok {
-		req.CliAddr = p.Addr.String()
-		sresp, err := ps.endpointCliManager.Logout(context.Background(), endpoint, req)
-		if err != nil {
-			return nil, err
-		}
-
-		return sresp, err
-
-	}
-	return nil, fmt.Errorf("Can't get ip from peer")
-}*/
-//old proxy server impl end
-
-//type CertServer struct {
-//	port int
-//}
-//
-//func NewCertServer(port int) *CertServer {
-//	return &CertServer{
-//		port: port,
-//	}
-//
-//}
-//
-//func (cs *CertServer) Cert(ctx context.Context, req *proto.CertRequest) (*proto.CertEntry, error) {
-//	if cert, err := auth.GetCert(); err == nil {
-//		return &proto.CertEntry{
-//			Content: cert,
-//		}, nil
-//	} else {
-//
-//		return nil, err
-//	}
-//
-//}
-//
-//func (cs *CertServer) Run() error {
-//	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", cs.port))
-//	if err != nil {
-//		return fmt.Errorf("init network error: %v", err)
-//	}
-//
-//	s := grpc.NewServer()
-//	proto.RegisterCertServiceServer(s, cs)
-//	reflection.Register(s)
-//	if err := s.Serve(lis); err != nil {
-//		return err
-//	}
-//	return nil
-//}

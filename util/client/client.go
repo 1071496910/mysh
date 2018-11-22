@@ -5,87 +5,116 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"golang.org/x/crypto/ssh/terminal"
 
+	"github.com/1071496910/mysh/cons"
 	"github.com/1071496910/mysh/proto"
 )
 
-var (
-	EnvKeyUid = "MYSH_UID"
-	EnvKeyPs  = "MYSH_PS"
+type Loginer interface {
+	Login() (string, string)
+}
 
-	UidCache      = ""
-	PasswordCache = ""
-)
+type KVCache interface {
+	Get(key string) string
+	Set(key string, val string)
+}
 
-type GetString func() string
-type SetString func(string)
+type mapCache struct {
+	cache map[string]string
+	rwmtx sync.RWMutex
+}
 
-func makeLoginFunc(client proto.SearchServiceClient, uidGetter, psGetter GetString, uidSetter, psSetter SetString) func() string {
-	uidSetter("")
-	psSetter("")
-	return func() string {
+func (mc mapCache) Get(key string) string {
+	mc.rwmtx.RLock()
+	defer mc.rwmtx.RUnlock()
+	return mc.cache[key]
+}
 
-		needLogin := false
-		//log.Println("DEBUG: client.go check login ", uidGetter(), psGetter())
-		if psGetter() == "" || uidGetter() == "" {
-			needLogin = true
-		} else {
-			//log.Println("DEBUG: login with password again", uidGetter(), psGetter())
-			if resp, err := client.Login(context.Background(), &proto.LoginRequest{
-				Uid:      uidGetter(),
-				Password: psGetter(),
-			}); err == nil {
-				return resp.Token
-			}
-			needLogin = true
+func (mc *mapCache) Set(key string, val string) {
+	mc.rwmtx.Lock()
+	defer mc.rwmtx.Unlock()
+	mc.cache[key] = val
+}
+
+type envCache struct {
+	rwmtx sync.RWMutex
+}
+
+func (ec envCache) Get(key string) string {
+	ec.rwmtx.RLock()
+	defer ec.rwmtx.RUnlock()
+	return os.Getenv(key)
+}
+
+func (ec *envCache) Set(key string, val string) {
+	ec.rwmtx.Lock()
+	defer ec.rwmtx.Unlock()
+	os.Setenv(key, val)
+}
+
+type loginer struct {
+	kvCache KVCache
+	client  proto.SearchServiceClient
+	once    sync.Once
+}
+
+func (l *loginer) Login() (string, string) {
+	l.once.Do(func() {
+		l.kvCache.Set(cons.EnvKeyPs, "")
+		l.kvCache.Set(cons.EnvKeyUid, "")
+	})
+
+	needLogin := false
+
+	if l.kvCache.Get(cons.EnvKeyUid) == "" || l.kvCache.Get(cons.EnvKeyPs) == "" {
+		needLogin = true
+	} else {
+		if resp, err := l.client.Login(context.Background(), &proto.LoginRequest{
+			Uid:      l.kvCache.Get(cons.EnvKeyUid),
+			Password: l.kvCache.Get(cons.EnvKeyPs),
+		}); err == nil {
+			return l.kvCache.Get(cons.EnvKeyUid), resp.Token
 		}
-
-		for needLogin {
-
-			reader := bufio.NewReader(os.Stdin)
-			fmt.Print("Enter username: ")
-			u, _, _ := reader.ReadLine()
-
-			fmt.Print("Enter password: ")
-			p, err := terminal.ReadPassword(int(os.Stdin.Fd()))
-			if err != nil {
-				panic(err)
-			}
-			fmt.Println()
-			uidSetter(string(u))
-			psSetter(string(p))
-
-			resp, err := client.Login(context.Background(), &proto.LoginRequest{
-				Uid:      string(u),
-				Password: string(p),
-			})
-			if err != nil {
-				fmt.Println(err)
-				continue
-			}
-			return resp.Token
-		}
-		return ""
+		needLogin = true
 	}
+
+	for needLogin {
+
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("Enter username: ")
+		u, _, _ := reader.ReadLine()
+
+		fmt.Print("Enter password: ")
+		p, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println()
+		l.kvCache.Set(cons.EnvKeyUid, string(u))
+		l.kvCache.Set(cons.EnvKeyPs, string(p))
+
+		resp, err := l.client.Login(context.Background(), &proto.LoginRequest{
+			Uid:      string(u),
+			Password: string(p),
+		})
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		return string(u), resp.Token
+	}
+	return "", ""
+
 }
 
-func MakeVarLoginFunc(client proto.SearchServiceClient) func() string {
-	uidGetter := GetString(func() string { return UidCache })
-	uidSetter := SetString(func(s string) { UidCache = s })
-	psGetter := GetString(func() string { return PasswordCache })
-	psSetter := SetString(func(s string) { PasswordCache = s })
-
-	return makeLoginFunc(client, uidGetter, psGetter, uidSetter, psSetter)
-}
-
-func MakeEnvLoginFunc(client proto.SearchServiceClient) func() string {
-	uidGetter := GetString(func() string { return os.Getenv(EnvKeyUid) })
-	uidSetter := SetString(func(s string) { os.Setenv(EnvKeyUid, s) })
-	psGetter := GetString(func() string { return os.Getenv(EnvKeyPs) })
-	psSetter := SetString(func(s string) { os.Setenv(EnvKeyPs, s) })
-
-	return makeLoginFunc(client, uidGetter, psGetter, uidSetter, psSetter)
-
+func NewLoginer(client proto.SearchServiceClient) Loginer {
+	return &loginer{
+		client: client,
+		kvCache: &mapCache{
+			cache: map[string]string{},
+		},
+	}
 }
