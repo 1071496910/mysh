@@ -95,67 +95,100 @@ func (r *recorder) Add(s string) error {
 }
 
 type PersistentRecorder interface {
-	Add(s string) error
-	Find(s string) []string
-	List() []string
-	//Dump() recordPersistentModel
-	//Save() error
+	Recorder
+
 	Run()
 	Stop()
 }
 
-//func NewFileRecorder(capacity int, f string) PersistentRecorder {
-//	return &fileRecorder{
-//		inited: false,
-//		r:      NewRecorder(capacity),
-//		f:      defaultFileStorageDir + f,
-//	}
-//}
+type Storage interface {
+	Save(string, []byte) error
+	TryInit(string) error
+	Load(string) ([]byte, error)
+}
+
+type etcdStorage struct{}
+
+func (etcdStorage) Save(f string, data []byte) error {
+	return etcd.PutKV(f, string(data))
+}
+
+func (etcdStorage) TryInit(string) error {
+	return nil
+}
+
+func (etcdStorage) Load(f string) ([]byte, error) {
+	return etcd.GetKV(f)
+}
+
+type fileStorage struct{}
+
+func (fileStorage) Save(f string, data []byte) error {
+	return ioutil.WriteFile(f, data, 0644)
+}
+
+func (fileStorage) TryInit(f string) error {
+	if _, err := os.Stat(f); os.IsNotExist(err) {
+
+		f, err := os.Create(f)
+		if err == nil {
+			defer f.Close()
+		}
+		return err
+	}
+	return nil
+}
+
+func (fileStorage) Load(f string) ([]byte, error) {
+	return ioutil.ReadFile(f)
+}
+
+func NewPersistentRecorder(capacity int, f string, storage Storage) PersistentRecorder {
+	return &persistentRecorder{
+		inited:  false,
+		r:       NewRecorder(capacity),
+		f:       defaultFileStorageDir + f,
+		Storage: storage,
+	}
+}
+
+func NewTypedPersistentRecorder(capacity int, f string, storageType StorageType) PersistentRecorder {
+	switch storageType {
+	case STORAGE_TYPE_ETCD:
+		return NewEtcdRecorder(capacity, f)
+	default:
+		return NewEtcdRecorder(capacity, f)
+	}
+}
 
 func NewFileRecorder(capacity int, f string) PersistentRecorder {
 	return &persistentRecorder{
-		inited:      false,
-		r:           NewRecorder(capacity),
-		f:           defaultFileStorageDir + f,
-		storageFunc: func(f string, data []byte) error { return ioutil.WriteFile(f, data, 0644) },
-		tryInitFunc: func(f string) error {
-
-			if _, err := os.Stat(f); os.IsNotExist(err) {
-
-				f, err := os.Create(f)
-				if err == nil {
-					defer f.Close()
-				}
-				return err
-			}
-			return nil
-		},
-		loadFunc: func(f string) ([]byte, error) { return ioutil.ReadFile(f) },
+		inited:  false,
+		r:       NewRecorder(capacity),
+		f:       defaultFileStorageDir + f,
+		Storage: &fileStorage{},
 	}
 }
 
 func NewEtcdRecorder(capacity int, f string) PersistentRecorder {
 	return &persistentRecorder{
-		inited:      false,
-		r:           NewRecorder(capacity),
-		f:           filepath.Join(defaultEtcdPrefix, f),
-		stopCh:      make(chan interface{}, 1),
-		storageFunc: func(f string, data []byte) error { return etcd.PutKV(f, string(data)) },
-		tryInitFunc: func(f string) error { return nil },
-		loadFunc:    func(f string) ([]byte, error) { return etcd.GetKV(f) },
+		inited:  false,
+		r:       NewRecorder(capacity),
+		f:       filepath.Join(defaultEtcdPrefix, f),
+		stopCh:  make(chan interface{}, 1),
+		Storage: &etcdStorage{},
 	}
 
 }
 
 type persistentRecorder struct {
-	inited      bool
-	m           sync.Mutex
-	r           Recorder
-	f           string
-	stopCh      chan interface{}
-	storageFunc func(string, []byte) error
-	tryInitFunc func(string) error
-	loadFunc    func(string) ([]byte, error)
+	inited bool
+	m      sync.Mutex
+	r      Recorder
+	f      string
+	stopCh chan interface{}
+
+	Storage
 }
 
 func (p *persistentRecorder) checkInited() {
@@ -174,9 +207,7 @@ func (p *persistentRecorder) Run() {
 		for {
 			select {
 			case <-ticker.C:
-				//log.Println("record run loop, before sync")
 				p.sync()
-				//log.Println("record run loop, after sync")
 			case <-p.stopCh:
 				log.Println("recorder stoping")
 				break Loop
@@ -196,13 +227,8 @@ func (p *persistentRecorder) Stop() {
 func (p *persistentRecorder) sync() error {
 	p.checkInited()
 
-	//log.Println("record.go in sync(), wait p.m.lock()")
 	p.m.Lock()
-	defer func() {
-		//log.Println("record.go in sync(), release  p.m.lock()")
-		p.m.Unlock()
-	}()
-	//log.Println("record.go in sync(), get p.m.lock()")
+	defer p.m.Unlock()
 
 	data, err := json.Marshal(p.r.List())
 	if err != nil {
@@ -210,8 +236,8 @@ func (p *persistentRecorder) sync() error {
 		return err
 	}
 
-	err = p.storageFunc(p.f, data)
-	//err = ioutil.WriteFile(p.f, data, 0644)
+	err = p.Save(p.f, data)
+
 	if err != nil {
 		log.Printf("sync [%v] records error...\n", p.f)
 		return err
@@ -249,26 +275,15 @@ func (p *persistentRecorder) List() []string {
 	return p.r.List()
 }
 
-//func (p *persistentRecorder) Dump() recordPersistentModel {
-//	p.m.Lock()
-//	defer p.m.Unlock()
-//
-//	return p.r.Dump()
-//}
-
-func (p *persistentRecorder) Save() error {
-	p.checkInited()
-	return p.sync()
-}
-
 func (p *persistentRecorder) initOrLoad() error {
 
-	if err := p.tryInitFunc(p.f); err != nil {
+	if err := p.TryInit(p.f); err != nil {
 		return err
 	}
 	p.inited = true
 
-	data, err := p.loadFunc(p.f)
+	data, err := p.Load(p.f)
+
 	if err != nil {
 		return err
 	}
@@ -301,15 +316,47 @@ func DefaultRecorderManager() RecorderManager {
 	return defaultRecorderManager
 }
 
-func NewRecorderManager() RecorderManager {
-	return &recorderManager{
-		recorderSet: lru.NewLRU(defaultRecorderNum),
+type RMOpts func(r *recorderManager)
+
+func SetRecorderNum(n int) RMOpts {
+	return func(r *recorderManager) {
+		r.recorderNum = n
+	}
+}
+func SetStorageType(t StorageType) RMOpts {
+	return func(r *recorderManager) {
+		r.storageType = t
 	}
 }
 
+func NewRecorderManager(opts ...RMOpts) RecorderManager {
+	rm := &recorderManager{}
+	for _, opt := range opts {
+		opt(rm)
+	}
+	if rm.recorderNum == 0 {
+		return &recorderManager{
+			recorderSet: lru.NewLRU(defaultRecorderNum),
+		}
+	}
+
+	return &recorderManager{
+		recorderSet: lru.NewLRU(rm.recorderNum),
+	}
+}
+
+type StorageType int
+
+const (
+	STORAGE_TYPE_FILE StorageType = iota
+	STORAGE_TYPE_ETCD
+)
+
 type recorderManager struct {
 	mtx         sync.Mutex
+	recorderNum int
 	recorderSet lru.LRUCache
+	storageType StorageType
 }
 
 func (r *recorderManager) tryRun(id string) error {
@@ -317,9 +364,8 @@ func (r *recorderManager) tryRun(id string) error {
 	if _, ok := r.recorderSet.Peek(id); ok {
 		return nil
 	}
+	recorder := NewTypedPersistentRecorder(defaultEtcdRecorderSize, id, r.storageType)
 
-	recorder := NewEtcdRecorder(defaultEtcdRecorderSize, id)
-	//recorder := NewFileRecorder(defaultFileRecorderSize, id)
 	if recorder == nil {
 		return fmt.Errorf("create file recorder error, id:[%v]", id)
 	}
@@ -359,7 +405,7 @@ func (r *recorderManager) Add(id string, s string) error {
 }
 
 func (r *recorderManager) Find(id string, s string) []string {
-	//for connect check
+
 	if id == "" && s == "" {
 		return nil
 	}
@@ -374,139 +420,3 @@ func (r *recorderManager) Find(id string, s string) []string {
 	obj, _ := r.recorderSet.Get(id)
 	return obj.(PersistentRecorder).Find(s)
 }
-
-//old code
-
-/*type fileRecorder struct {
-	inited bool
-	m      sync.Mutex
-	r      Recorder
-	f      string
-	stopCh chan interface{}
-}
-
-func (p *fileRecorder) checkInited() {
-	if !p.inited {
-		log.Fatalf("record [%v] is not inited or load ", p.f)
-	}
-
-}
-
-func (p *fileRecorder) Run() {
-
-	p.initOrLoad()
-
-	ticker := time.NewTicker(time.Second * 1)
-	go func() {
-		for _ = range ticker.C {
-			select {
-			case <-ticker.C:
-				p.sync()
-			case <-p.stopCh:
-				p.Save()
-				return
-			}
-		}
-	}()
-}
-
-func (p *fileRecorder) Stop() {
-	p.stopCh <- "Done"
-}
-
-func (p *fileRecorder) sync() error {
-	p.checkInited()
-
-	p.m.Lock()
-	defer p.m.Unlock()
-
-	data, err := json.Marshal(p.r.List())
-	if err != nil {
-		log.Printf("parse [%v] records error...\n", p.f)
-		return err
-	}
-
-	err = ioutil.WriteFile(p.f, data, 0644)
-	if err != nil {
-		log.Printf("sync [%v] records error...\n", p.f)
-		return err
-	}
-	return nil
-}
-
-func (p *fileRecorder) Add(s string) error {
-	p.checkInited()
-
-	p.m.Lock()
-	defer p.m.Unlock()
-
-	if err := p.r.Add(s); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (p *fileRecorder) Find(s string) []string {
-	p.checkInited()
-
-	p.m.Lock()
-	defer p.m.Unlock()
-
-	return p.r.Find(s)
-}
-
-func (p *fileRecorder) List() []string {
-	p.checkInited()
-	p.m.Lock()
-	defer p.m.Unlock()
-
-	return p.r.List()
-}
-
-//func (p *fileRecorder) Dump() recordPersistentModel {
-//	p.m.Lock()
-//	defer p.m.Unlock()
-//
-//	return p.r.Dump()
-//}
-
-func (p *fileRecorder) Save() error {
-	p.checkInited()
-	return p.sync()
-}
-
-func (p *fileRecorder) initOrLoad() error {
-
-	if _, err := os.Stat(p.f); os.IsNotExist(err) {
-
-		f, err := os.Create(p.f)
-		if err == nil {
-			p.inited = true
-			defer f.Close()
-		}
-		return err
-	}
-
-	data, err := ioutil.ReadFile(p.f)
-	if err != nil {
-		return err
-	}
-
-	recordObj := []string{}
-	if len(data) == 0 {
-		p.inited = true
-		return nil
-	}
-	if err := json.Unmarshal(data, &recordObj); err != nil {
-		return err
-	}
-	for i := len(recordObj) - 1; i >= 0; i-- {
-		if err := p.r.Add(recordObj[i]); err != nil {
-			return err
-		}
-	}
-
-	p.inited = true
-	return nil
-}*/
