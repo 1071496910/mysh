@@ -89,6 +89,16 @@ func IsLeader(electKey string, electorID string) (bool, error) {
 	return leader.ElectorID == electorID, nil
 }
 
+func GetElectorID(electKey string) (string, error) {
+	leaderInfo, err := GetKV(electKey)
+	if err != nil {
+		return "", err
+	}
+	leader := electorInfo{}
+	json.Unmarshal(leaderInfo, &leader)
+	return leader.ElectorID, nil
+}
+
 func Elect(electKey string, electorID string, ttl int64) error {
 	once.Do(Init)
 	leaseResp, err := cli.Grant(context.Background(), ttl)

@@ -8,7 +8,8 @@ import (
 
 func main() {
 
-	s := server.NewDashServer(cons.DashPort)
+	s := server.NewDashServer(cons.DashAddr)
+	//s := server.NewDashServer(":8085")
 
 	go func() {
 		dc, err := server.NewDashController()

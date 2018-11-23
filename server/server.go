@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -284,6 +283,7 @@ func NewDashController() (*DashController, error) {
 
 	dashController.ec = controller.NewController(sucker,
 		func(i interface{}) {
+
 			kv := i.(*controller.EtcdSuckerEventObj)
 			if node, err := filepath.Rel(cons.ServerRegistryPrefix, string(kv.Key)); err != nil {
 				log.Println("parse node info err ", err)
@@ -303,12 +303,16 @@ func NewDashController() (*DashController, error) {
 				log.Println("parse node info err ", err)
 				return
 			} else {
+				/*selfID := GenSelfID()
+				if ok, err := etcd.IsLeader(cons.DashLeaderKey, selfID); !ok || err != nil {
+					return
+				}
 
 				err = etcd.DElKeysByPrefix(fmt.Sprintf(cons.DashUidsQueryFormat, node))
 				if err != nil {
 					log.Println("del node uid inof err", err)
 					return
-				}
+				}*/
 
 				log.Println("del node ", node, "from hash", hr.DelNode(node))
 			}
@@ -382,26 +386,46 @@ func (dc *DashServer) cleanUidCache(uid string) error {
 
 type DashServer struct {
 	pcClientCache *PCCliManager
-	port          int
+	addr          string
 }
 
-func NewDashServer(port int) *DashServer {
+func NewDashServer(addr string) *DashServer {
 	return &DashServer{
-		port:          port,
+		addr:          addr,
 		pcClientCache: &PCCliManager{cliMap: make(map[string]proto.ProxyControllerClient)},
 	}
 
 }
 
 func (ss *DashServer) Run() error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", ss.port))
+	lis, err := net.Listen("tcp", ss.addr)
 	if err != nil {
 		return fmt.Errorf("init network error: %v", err)
 	}
 
-	s := grpc.NewServer()
+	selfID := ss.addr
+	interceptor := grpc.UnaryInterceptor(
+		func(ctx context.Context,
+			req interface{},
+			info *grpc.UnaryServerInfo,
+			handler grpc.UnaryHandler) (resp interface{}, err error) {
+			var isleader bool
+			if isleader, err = etcd.IsLeader(cons.DashLeaderKey, selfID); !isleader || err != nil {
+				err = cons.ErrDashLeaderUnavailable
+				log.Println("in start dashserver :", err)
+				return
+			}
+			return handler(ctx, req)
+
+		})
+
+	s := grpc.NewServer(interceptor)
+
 	proto.RegisterDashServiceServer(s, ss)
 	reflection.Register(s)
+	go func() {
+		go etcd.Elect(cons.DashLeaderKey, selfID, 3)
+	}()
 	if err := s.Serve(lis); err != nil {
 		return err
 	}
@@ -476,7 +500,7 @@ func updateEpInfo(uid string, oldEndpoint string, newEndpoint string) error {
 
 func allocEndpoint(uid string) (string, error) {
 
-	log.Println("in dash server before get node ")
+	log.Println("in dash 0 ")
 	if hashedEndpoint, err := hr.GetNode(uid); err != nil {
 		log.Println("in dash server allocep get node ")
 		return "", err
@@ -773,6 +797,47 @@ func (ecm *SCCliManager) Check(ctx context.Context, endpoint string, in *proto.H
 	return cli.Check(ctx, in, opts...)
 }
 
+//DS manager
+type DSCliManager struct {
+	cliMap map[string]proto.DashServiceClient
+	mtx    sync.Mutex
+}
+
+func newDSServerCli(endpoint string) proto.DashServiceClient {
+
+	dashPort := strings.Split(endpoint, ":")[1]
+	conn, err := grpc.Dial("www.myshell.top:"+dashPort, grpc.WithInsecure())
+	if err != nil {
+		panic(err)
+	}
+	return proto.NewDashServiceClient(conn)
+}
+
+func (dsm *DSCliManager) ensureCliExists(endpoint string) {
+	if _, ok := dsm.cliMap[endpoint]; !ok {
+
+		dsm.mtx.Lock()
+		defer dsm.mtx.Unlock()
+		if _, ok = dsm.cliMap[endpoint]; !ok {
+			dsm.cliMap[endpoint] = newDSServerCli(endpoint)
+		}
+	}
+}
+
+func (dsm *DSCliManager) UidEndpoint(ctx context.Context, in *proto.CommonQueryRequest, opts ...grpc.CallOption) (*proto.CommonQueryResponse, error) {
+
+	endpoint, err := etcd.GetElectorID(cons.DashLeaderKey)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Print("DEBUG: server controller endpoint ", endpoint)
+	dsm.ensureCliExists(endpoint)
+	cli := dsm.cliMap[endpoint]
+
+	return cli.UidEndpoint(ctx, in, opts...)
+}
+
 //
 
 func uidSuspensive(uid string) bool {
@@ -859,23 +924,28 @@ func (pc *ProxyController) CleanUidCache(ctx context.Context, req *proto.CleanRe
 }
 
 type ProxyServer struct {
-	port               int
-	dashCli            proto.DashServiceClient
+	port           int
+	dashCliManager *DSCliManager
+	//dashCli            proto.DashServiceClient
 	endpointCliManager *EndpointCliManager
 }
 
 func NewProxyServer(port int) *ProxyServer {
-	conn, err := grpc.Dial("www.myshell.top:"+strconv.Itoa(cons.DashPort), grpc.WithInsecure())
+	/*dashPort := strings.Split(cons.DashAddr,":")[1]
+	conn, err := grpc.Dial("www.myshell.top:"+dashPort, grpc.WithInsecure())
 	if err != nil {
 		panic(err)
-	}
+	}*/
 	endpointCliManger := &EndpointCliManager{
 		cliMap: make(map[string]proto.SearchServiceClient),
+	}
+	dashCliManager := &DSCliManager{
+		cliMap: make(map[string]proto.DashServiceClient),
 	}
 
 	return &ProxyServer{
 		port:               port,
-		dashCli:            proto.NewDashServiceClient(conn),
+		dashCliManager:     dashCliManager,
 		endpointCliManager: endpointCliManger,
 	}
 
@@ -918,7 +988,7 @@ func (ps *ProxyServer) uidEndpoint(uid string) (string, error) {
 	uidEndpointsCacheMtx.Lock()
 	defer uidEndpointsCacheMtx.Unlock()
 
-	resp, err := ps.dashCli.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
+	resp, err := ps.dashCliManager.UidEndpoint(context.Background(), &proto.CommonQueryRequest{
 		Req: uid,
 	})
 	if err != nil {
@@ -936,12 +1006,21 @@ func checkConnErr(err error) bool {
 	return strings.Contains(err.Error(), "connection error")
 }
 
+func checkLeaderUnavailableErr(err error) bool {
+	return strings.Contains(err.Error(), cons.ErrDashLeaderUnavailable.Error())
+}
+
 func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFunction) error {
 	//waitUid(uid)
 
 	endpoint, err := ps.uidEndpoint(uid)
-	if err != nil {
-		return err
+	for err != nil {
+		log.Println("in doproxy get uidEndpoint err:", err)
+		if !checkLeaderUnavailableErr(err) {
+			return err
+		}
+		time.Sleep(time.Second)
+		endpoint, err = ps.uidEndpoint(uid)
 	}
 	atomic.AddInt32(&proxyReqCount, 1)
 	defer atomic.AddInt32(&proxyReqCount, -1)

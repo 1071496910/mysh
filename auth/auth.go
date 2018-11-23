@@ -141,5 +141,7 @@ func SaltGenerator() ([]byte, error) {
 }
 
 func EncryptPassword(salt string, password string) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprint(password, salt))))
+	index := len(password) % len(salt)
+	catStr := salt[:index] + password + salt[index:]
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(catStr)))
 }

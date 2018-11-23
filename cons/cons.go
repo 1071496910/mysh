@@ -1,6 +1,7 @@
 package cons
 
 import (
+	"errors"
 	"log"
 	"os/user"
 	"path/filepath"
@@ -22,7 +23,7 @@ var (
 	Domain       = "www.myshell.top"
 	Port         = 8080
 	CertPort     = 8081
-	DashPort     = 8082
+	DashAddr     = ":8082"
 	EndpointPort = 8083
 
 	OP_PAUSE  int32 = 0
@@ -56,4 +57,7 @@ var (
 
 	EnvKeyUid = "MYSH_UID"
 	EnvKeyPs  = "MYSH_PS"
+
+	ErrDashLeaderUnavailable = errors.New("not leader")
+	DashLeaderKey            = "/mysh/dash/leader"
 )
