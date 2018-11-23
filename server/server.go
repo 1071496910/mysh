@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -691,18 +692,18 @@ func newPCServerCli(endpoint string) proto.ProxyControllerClient {
 
 	creds, err := credentials.NewClientTLSFromFile(cons.UserCrt, "www.myshell.top")
 	if err != nil {
-		panic(err)
+		log.Println(err)
 	}
 
 	conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(creds))
 	if err != nil {
-		panic(err)
+		log.Println(err)
 	}
 
-	//conn, err := grpc.Dial(endpoint, grpc.WithInsecure())
+	/*conn, err := grpc.Dial(endpoint, grpc.WithInsecure())
 	if err != nil {
 		panic(err)
-	}
+	}*/
 	return proto.NewProxyControllerClient(conn)
 }
 
@@ -755,9 +756,6 @@ func (ecm *SCCliManager) ensureCliExists(endpoint string) {
 }
 
 func (ecm *SCCliManager) UidLogout(ctx context.Context, endpoint string, in *proto.UidLogoutRequest, opts ...grpc.CallOption) (*proto.UidLogoutResponse, error) {
-	//1. 先判断客户端是否存在
-	//2. 获取或者创建客户端
-	//3. 通过客户端请求
 
 	log.Print("DEBUG: server controller endpoint ", endpoint)
 	ecm.ensureCliExists(endpoint)
@@ -767,9 +765,6 @@ func (ecm *SCCliManager) UidLogout(ctx context.Context, endpoint string, in *pro
 }
 
 func (ecm *SCCliManager) Check(ctx context.Context, endpoint string, in *proto.HealthCheckRequest, opts ...grpc.CallOption) (*proto.HealthCheckResponse, error) {
-	//1. 先判断客户端是否存在
-	//2. 获取或者创建客户端
-	//3. 通过客户端请求
 
 	log.Print("DEBUG: in check server controller endpoint ", endpoint)
 	ecm.ensureCliExists(endpoint)
@@ -850,8 +845,6 @@ func RunProxyService(port int) error {
 }
 
 func (pc *ProxyController) CleanUidCache(ctx context.Context, req *proto.CleanRequest) (*proto.CleanResponse, error) {
-	//uidSuspend(req.Uid)
-	//for proxyReqCount != 0 {
 	uidEndpointsCacheMtx.Lock()
 	defer uidEndpointsCacheMtx.Unlock()
 	for atomic.LoadInt32(&proxyReqCount) != 0 {
@@ -861,7 +854,6 @@ func (pc *ProxyController) CleanUidCache(ctx context.Context, req *proto.CleanRe
 
 	log.Println("DEBUG proxy delete endpoint cache ", uidEndpointsCache, req.Uid)
 	uidEndpointsCache.Del(req.Uid)
-	//delete(uidEndpointsCache, req.Uid)
 
 	return &proto.CleanResponse{ResponseCode: 200}, nil
 }
@@ -940,15 +932,17 @@ func (ps *ProxyServer) uidEndpoint(uid string) (string, error) {
 
 type dealFunction func(p *peer.Peer, endpoint string) error
 
+func checkConnErr(err error) bool {
+	return strings.Contains(err.Error(), "connection error")
+}
+
 func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFunction) error {
 	//waitUid(uid)
 
 	endpoint, err := ps.uidEndpoint(uid)
-
 	if err != nil {
 		return err
 	}
-
 	atomic.AddInt32(&proxyReqCount, 1)
 	defer atomic.AddInt32(&proxyReqCount, -1)
 
@@ -956,6 +950,9 @@ func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFun
 		err := dealFunc(p, endpoint)
 		if err != nil {
 			log.Println("DEBUG: in do search err: ", err)
+			if !checkConnErr(err) {
+				return err
+			}
 			atomic.AddInt32(&proxyReqCount, -1)
 
 			uidEndpointsCacheMtx.Lock()
@@ -972,12 +969,11 @@ func (ps *ProxyServer) doProxy(ctx context.Context, uid string, dealFunc dealFun
 	return fmt.Errorf("Can't get ip from peer")
 }
 
-func (ss *ProxyServer) Check(context.Context, *proto.HealthCheckRequest) (*proto.HealthCheckResponse, error) {
+/*func (ss *ProxyServer) Check(context.Context, *proto.HealthCheckRequest) (*proto.HealthCheckResponse, error) {
 	return &proto.HealthCheckResponse{
 		Status: proto.HealthCheckResponse_SERVING,
 	}, nil
-
-}
+}*/
 
 func (ps *ProxyServer) Search(ctx context.Context, req *proto.SearchRequest) (*proto.SearchResponse, error) {
 

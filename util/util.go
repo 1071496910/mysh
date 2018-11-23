@@ -4,6 +4,7 @@ import (
 	"github.com/1071496910/mysh/cons"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -54,6 +55,14 @@ func OverWriteFile(fn string, data string) error {
 	return writeFile(fn, data, func() (*os.File, error) {
 		return os.Create(fn)
 	})
+}
+
+func CheckTCP(endpint string) bool {
+	if conn, err := net.Dial("tcp", endpint); err == nil {
+		conn.Close()
+		return true
+	}
+	return false
 }
 
 func writeFile(fn string, data string, openFunc func() (*os.File, error)) error {

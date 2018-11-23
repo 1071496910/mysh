@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -10,16 +11,23 @@ import (
 	"github.com/1071496910/mysh/cons"
 )
 
-func MakePasswordGetter() func(uid string) (string, error) {
-	db, err := sql.Open("mysql", cons.MysqlStr)
+var (
+	db *sql.DB
+)
+
+func init() {
+	var err error
+	db, err = sql.Open("mysql", cons.MysqlStr)
 	if err != nil {
 		log.Println(err)
 		panic(err)
-		//return nil
 	}
+}
+
+func MakeSaltPasswordGetter() func(uid string) (string, string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), cons.MysqlTimeout)
-	stmt, err := db.PrepareContext(ctx, "SELECT password FROM "+cons.UinfoTable+" WHERE uid= ? ;")
+	stmt, err := db.PrepareContext(ctx, "SELECT salt, password FROM "+cons.UinfoTable+" WHERE uid= ? ;")
 	defer cancel()
 
 	if err != nil {
@@ -28,14 +36,35 @@ func MakePasswordGetter() func(uid string) (string, error) {
 		//return nil
 	}
 
-	return func(uid string) (string, error) {
+	return func(uid string) (string, string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), cons.MysqlTimeout)
 		var password string
-		err := stmt.QueryRowContext(ctx, uid).Scan(&password)
+		var salt string
+		err := stmt.QueryRowContext(ctx, uid).Scan(&salt, &password)
 		defer cancel()
 		if err != nil {
 			log.Println(err)
 		}
-		return password, err
+		return salt, password, err
+	}
+}
+
+func SaltPasswordOperator() func(uid string, salt string, password string) (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cons.MysqlTimeout)
+	stmt, err := db.PrepareContext(ctx, fmt.Sprintf("INSERT INTO %v (uid, salt, password) values (?, ?, ?)", cons.UinfoTable))
+	defer cancel()
+	if err != nil {
+		panic(err)
+	}
+
+	return func(uid string, salt string, password string) (int64, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), cons.MysqlTimeout)
+		result, err := stmt.ExecContext(ctx, uid, salt, password)
+		defer cancel()
+		if err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+
 	}
 }

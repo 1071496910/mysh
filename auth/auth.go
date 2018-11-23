@@ -2,6 +2,8 @@ package auth
 
 import (
 	"crypto/md5"
+	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,9 +15,9 @@ import (
 )
 
 var (
-	loginCache     = make(map[string]map[string]string)
-	passwordGetter = db.MakePasswordGetter()
-	loginCacheMtx  sync.Mutex
+	loginCache         = make(map[string]map[string]string)
+	saltPasswordGetter = db.MakeSaltPasswordGetter()
+	loginCacheMtx      sync.Mutex
 )
 
 func CheckLoginState(uid string, token string, extra ...string) bool {
@@ -103,22 +105,22 @@ func genToken(uid string, extra ...string) string {
 	return token
 }
 
-func checkPassword(password string, saltPassword string) bool {
-	return password == saltPassword
+func checkPassword(salt string, saltPassword string, password string) bool {
+	return EncryptPassword(salt, password) == saltPassword
 }
 
 func Login(uid string, password string, extra ...string) (string, bool) {
 	loginState := false
 	token := ""
-	if passwordGetter == nil {
+	if saltPasswordGetter == nil {
 		return "", false
 	}
-	p, err := passwordGetter(uid)
+	s, p, err := saltPasswordGetter(uid)
 	if err != nil {
 		log.Println(err)
 		return "", false
 	}
-	if checkPassword(password, p) {
+	if checkPassword(s, p, password) {
 		loginState = true
 	}
 
@@ -127,4 +129,17 @@ func Login(uid string, password string, extra ...string) (string, bool) {
 	}
 
 	return token, loginState
+}
+
+func SaltGenerator() ([]byte, error) {
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func EncryptPassword(salt string, password string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprint(password, salt))))
 }
