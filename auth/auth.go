@@ -105,8 +105,8 @@ func genToken(uid string, extra ...string) string {
 	return token
 }
 
-func checkPassword(salt string, saltPassword string, password string) bool {
-	return EncryptPassword(salt, password) == saltPassword
+func checkPassword(uid string, salt string, saltPassword string, password string) bool {
+	return EncryptPassword(uid, salt, password) == saltPassword
 }
 
 func Login(uid string, password string, extra ...string) (string, bool) {
@@ -120,7 +120,7 @@ func Login(uid string, password string, extra ...string) (string, bool) {
 		log.Println(err)
 		return "", false
 	}
-	if checkPassword(s, p, password) {
+	if checkPassword(uid, s, p, password) {
 		loginState = true
 	}
 
@@ -140,8 +140,9 @@ func SaltGenerator() ([]byte, error) {
 	return b, nil
 }
 
-func EncryptPassword(salt string, password string) string {
-	index := len(password) % len(salt)
+func EncryptPassword(uid string, salt string, password string) string {
+
+	index := len(uid) % len(salt)
 	catStr := salt[:index] + password + salt[index:]
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(catStr)))
 }
